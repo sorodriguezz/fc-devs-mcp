@@ -1,0 +1,20 @@
+{
+  "name": "fc-devs-mcp",
+  "version": "1.0.0",
+  "description": "A Model Context Protocol server for FC Devs.",
+  "homepage": "https://github.com/sorodriguezz/fc-devs-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/sorodriguezz/fc-devs-mcp/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sorodriguezz/fc-devs-mcp.git"
+  },
+  "license": "ISC",
+  "author": "sorodriguezz",
+  "type": "commonjs",
+  "main": "index.js",
+  "scripts": {
+    "start": ""
+  }
+}
