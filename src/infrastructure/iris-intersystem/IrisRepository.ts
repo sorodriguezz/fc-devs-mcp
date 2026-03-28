@@ -1,132 +1,166 @@
-import * as iris from "@intersystems/intersystems-iris-native";
-
-import type { IIrisRepository } from "../../core/interfaces/IIrisRepository.js";
+import type {
+  IIrisRepository,
+  SqlExecutionResult,
+  SqlMutationResult,
+  SqlMutationType,
+  SqlSelectResult,
+} from "../../core/interfaces/IIrisRepository.js";
+import type { IrisConnectionManager } from "./IrisConnectionManager.js";
 
 export interface IIrisConfig {
-  hostname: string;
-  port: number;
-  namespace: string;
-  username: string;
-  password: string;
+  readonly hostname: string;
+  readonly port: number;
+  readonly namespace: string;
+  readonly username: string;
+  readonly password: string;
+}
+
+export class IrisSqlError extends Error {
+  public override readonly name = "IrisSqlError";
+
+  constructor(
+    public readonly sqlCode: number,
+    sqlMessage: string,
+    public readonly query: string,
+  ) {
+    super(
+      `[SQLCODE ${sqlCode}]: ${sqlMessage?.trim() || "Error de SQL sin mensaje descriptivo."}`,
+    );
+  }
+}
+
+type KnownSqlOperation = "SELECT" | SqlMutationType;
+
+const KNOWN_SQL_VERBS: ReadonlySet<string> = new Set([
+  "SELECT", "INSERT", "UPDATE", "DELETE", "DROP", "TRUNCATE", "CREATE", "ALTER",
+]);
+
+function classifySqlOperation(query: string): KnownSqlOperation {
+  const firstToken = query.trimStart().split(/\s+/)[0]?.toUpperCase() ?? "";
+  return KNOWN_SQL_VERBS.has(firstToken) ? (firstToken as KnownSqlOperation) : "DML";
+}
+
+function parseRowTypeColumns(rowType: string): string[] {
+  return rowType
+    .replace(/^ROW\s*\(|\)\s*$/gi, "")
+    .split(",")
+    .map((chunk) => chunk.trim().split(/\s+/)[0]?.replace(/^"|"$/g, "") ?? "")
+    .filter(Boolean);
 }
 
 export class IrisRepository implements IIrisRepository {
-  private db: any;
-  private irisInstance: any;
+  constructor(private readonly conn: IrisConnectionManager) {}
 
-  constructor(private readonly config: IIrisConfig) {}
+  async executeSql(query: string, maxRows?: number): Promise<SqlExecutionResult> {
+    const trimmedQuery = query.trim();
+    if (!trimmedQuery) throw new Error("La consulta SQL no puede estar vacía.");
 
-  private async ensureConnection() {
-    if (!this.db) {
-      console.error("🔌 Conectando a InterSystems IRIS por primera vez...");
-      this.db = iris.createConnection({
-        host: this.config.hostname,
-        port: this.config.port,
-        ns: this.config.namespace,
-        user: this.config.username,
-        pwd: this.config.password,
-        sharedmemory: false,
-        sslconfig: false,
-      });
-      this.irisInstance = this.db.createIris();
-    }
-    return this.irisInstance;
-  }
-  async executeSql(query: string): Promise<any> {
-    const irisNative = await this.ensureConnection();
+    const operation = classifySqlOperation(trimmedQuery);
+    const instance = this.conn.getActiveInstance();
 
-    console.error(`[DEBUG] Ejecutando SQL: ${query}`);
-
-    const result = irisNative.classMethodObject(
-      "%SYSTEM.SQL",
-      "Execute",
-      query,
+    console.error(
+      `[IRIS:SQL:${operation}] ${trimmedQuery.length > 120 ? trimmedQuery.substring(0, 120) + "…" : trimmedQuery}`,
     );
-    if (!result)
-      throw new Error(
-        "Fallo crítico: IRIS no devolvió un objeto de resultado.",
-      );
 
-    let sqlCode = 0;
-    let sqlMessage = "";
+    const result = this.executeOnIris(instance, trimmedQuery);
+    const { sqlCode, sqlMessage } = this.readSqlState(result);
 
-    try {
-      sqlCode = result.invokeInteger("%SQLCODEGet");
-      sqlMessage = result.invokeString("%MessageGet");
-    } catch (e1) {
-      try {
-        sqlCode = result.invokeInteger("SQLCODEGet");
-        sqlMessage = result.invokeString("MessageGet");
-      } catch (e2: any) {
-        console.error(
-          `[WARN] No se pudo leer la propiedad SQLCODE del objeto devuelto. Error: ${e2.message}`,
-        );
-      }
-    }
+    if (sqlCode < 0) throw new IrisSqlError(sqlCode, sqlMessage, trimmedQuery);
 
-    if (sqlCode < 0) {
-      throw new Error(
-        `IRIS DB Error (${sqlCode}): ${sqlMessage || "Instrucción inválida o tabla no encontrada."}`,
-      );
-    }
+    const columns = this.extractColumnNames(result);
 
-    const columns = this.getSqlColumns(result);
-
-    if (columns.length === 0) {
-      let rowCount = 0;
-      try {
-        rowCount = result.invokeInteger("%ROWCOUNTGet");
-      } catch (e1) {
-        try {
-          rowCount = result.invokeInteger("ROWCOUNTGet");
-        } catch (e2) {}
-      }
-
-      return {
-        operation: "DML",
-        success: true,
-        rowsAffected: rowCount,
-        message: `Operación ejecutada correctamente. Filas afectadas: ${rowCount}`,
-      };
-    }
-
-    const rows = [];
-    let hasRow = result.invokeBoolean("%Next");
-    while (hasRow) {
-      const row: any = {};
-      for (const col of columns) {
-        try {
-          row[col] = result.invokeString("%Get", col);
-        } catch (e) {
-          row[col] = null;
-        }
-      }
-      rows.push(row);
-      hasRow = result.invokeBoolean("%Next");
-    }
-
-    return rows;
+    return columns.length > 0
+      ? this.buildSelectResult(columns, result, maxRows)
+      : this.buildMutationResult(operation, result);
   }
 
-  private getSqlColumns(result: any): string[] {
+  async close(): Promise<void> {}
+
+  private executeOnIris(instance: any, query: string): any {
+    let result: any;
+    try {
+      result = instance.classMethodObject("%SYSTEM.SQL", "Execute", query);
+    } catch (err: any) {
+      this.conn.invalidate();
+      throw new Error(`Error de comunicación con IRIS al ejecutar la query: ${err.message}`);
+    }
+
+    if (result === null || result === undefined) {
+      throw new Error("IRIS devolvió un resultado nulo. La sentencia puede ser inválida.");
+    }
+    return result;
+  }
+
+  private readSqlState(result: any): { sqlCode: number; sqlMessage: string } {
+    let rawCode: unknown;
+    try {
+      rawCode = result.get("%SQLCODE");
+      if (rawCode === undefined || rawCode === null) {
+        rawCode = result.invokeNumber("%SQLCODEGet");
+      }
+    } catch (err: any) {
+      throw new Error(`Error interno: No se pudo leer el SQLCODE. Detalle: ${err.message}`);
+    }
+
+    if (rawCode === undefined || rawCode === null) {
+      throw new Error("IRIS retornó SQLCODE nulo o indefinido.");
+    }
+
+    let sqlMessage = "";
+    try {
+      const rawMsg = result.get("%Message");
+      sqlMessage = rawMsg != null ? String(rawMsg) : "";
+    } catch {
+      /* mensaje no disponible, no es crítico */
+    }
+
+    return { sqlCode: Number(rawCode), sqlMessage };
+  }
+
+  private extractColumnNames(result: any): string[] {
     try {
       const metadata = result.invokeObject("%GetMetadata");
       if (!metadata) return [];
       const rowType = metadata.invokeString("GenerateRowType");
       if (!rowType) return [];
-      return rowType
-        .replace(/^ROW\(|\)$/gi, "")
-        .split(",")
-        .map((chunk: string) =>
-          chunk.trim().split(/\s+/)[0].replace(/^"|"$/g, ""),
-        )
-        .filter(Boolean);
-    } catch (e) {
+      return parseRowTypeColumns(rowType);
+    } catch {
       return [];
     }
   }
 
-  async close() {
-    if (this.db) this.db.close();
+  private buildSelectResult(columns: string[], result: any, maxRows?: number): SqlSelectResult {
+    const rows: Array<Record<string, unknown>> = [];
+    const limit = maxRows !== undefined && maxRows > 0 ? maxRows : Infinity;
+
+    while (result.invokeBoolean("%Next") && rows.length < limit) {
+      const row: Record<string, unknown> = {};
+      for (const col of columns) {
+        try {
+          row[col] = result.invokeString("%Get", col) ?? null;
+        } catch {
+          row[col] = null;
+        }
+      }
+      rows.push(row);
+    }
+
+    return { operation: "SELECT", columns, rows, rowCount: rows.length };
+  }
+
+  private buildMutationResult(operation: KnownSqlOperation, result: any): SqlMutationResult {
+    let rowsAffected = 0;
+    try {
+      const raw = result.get("%ROWCOUNT");
+      if (raw !== undefined && raw !== null) rowsAffected = Number(raw);
+    } catch { /* DDL no expone %ROWCOUNT */ }
+
+    const mutationType: SqlMutationType = operation === "SELECT" ? "DML" : operation;
+    return {
+      operation: mutationType,
+      success: true,
+      rowsAffected,
+      message: `Operación ${mutationType} ejecutada correctamente. Filas afectadas: ${rowsAffected}.`,
+    };
   }
 }
