@@ -1,10 +1,12 @@
 import type { IrisConnectionManager } from "./IrisConnectionManager.js";
 import type {
   IIrisProductionRepository,
+  LogEntry,
   ProductionHost,
   ProductionInfo,
   ProductionOperationResult,
   ProductionStatus,
+  QueueInfo,
 } from "../../core/interfaces/IIrisProductionRepository.js";
 import { PRODUCTION_STATUS_MAP } from "../../core/interfaces/IIrisProductionRepository.js";
 
@@ -125,8 +127,20 @@ export class IrisProductionRepository implements IIrisProductionRepository {
     const instance = this.conn.getActiveInstance();
 
     try {
-      const status = instance.classMethodValue("Ens.Director", "UpdateProduction", 10);
-      return this.resolveStatus(instance, status, "Production reiniciada correctamente.");
+      const nameRef = new (this.getIrisReference(instance))("");
+      instance.classMethodValue("Ens.Director", "GetProductionStatus", nameRef);
+      const productionName = this.resolveReference(nameRef);
+
+      if (!productionName) {
+        return { success: false, message: "No hay ninguna production activa para reiniciar." };
+      }
+
+      const stopStatus = instance.classMethodValue("Ens.Director", "StopProduction", 10, 0);
+      const stopResult = this.resolveStatus(instance, stopStatus, "");
+      if (!stopResult.success) return { success: false, message: `Error al detener antes del reinicio: ${stopResult.message}` };
+
+      const startStatus = instance.classMethodValue("Ens.Director", "StartProduction", productionName, 10);
+      return this.resolveStatus(instance, startStatus, `Production "${productionName}" reiniciada correctamente.`);
     } catch (err: any) {
       this.conn.invalidate();
       throw new Error(`Error al reiniciar la production: ${err.message}`);
@@ -167,6 +181,111 @@ export class IrisProductionRepository implements IIrisProductionRepository {
       return hosts;
     } catch (err: any) {
       throw new Error(`Error al obtener hosts de la production: ${err.message}`);
+    }
+  }
+
+  async getQueues(): Promise<QueueInfo[]> {
+    const instance = this.conn.getActiveInstance();
+
+    const query = `
+      SELECT Name, Count
+      FROM Ens_Queue.Contents
+      ORDER BY Name
+    `;
+
+    try {
+      const result = instance.classMethodObject("%SYSTEM.SQL", "Execute", query);
+      if (!result) return [];
+
+      const sqlCode = Number(result.get("%SQLCODE") ?? 0);
+      if (sqlCode < 0) {
+        const msg = String(result.get("%Message") ?? "");
+        throw new Error(`SQL Error [${sqlCode}]: ${msg}`);
+      }
+
+      const queues: QueueInfo[] = [];
+      while (result.invokeBoolean("%Next")) {
+        queues.push({
+          name: result.invokeString("%Get", "Name") ?? "",
+          count: Number(result.invokeString("%Get", "Count") ?? 0),
+        });
+      }
+      return queues;
+    } catch (err: any) {
+      throw new Error(`Error al obtener colas de la production: ${err.message}`);
+    }
+  }
+
+  async getLogs(maxRows = 100): Promise<LogEntry[]> {
+    const instance = this.conn.getActiveInstance();
+
+    const safeMax = Math.max(1, Math.min(maxRows, 1000));
+    const query = `
+      SELECT TOP ${safeMax} ID, SessionId, Job, Type, ConfigName, Text, TimeLogged
+      FROM Ens_Util.Log
+      ORDER BY ID DESC
+    `;
+
+    try {
+      const result = instance.classMethodObject("%SYSTEM.SQL", "Execute", query);
+      if (!result) return [];
+
+      const sqlCode = Number(result.get("%SQLCODE") ?? 0);
+      if (sqlCode < 0) {
+        const msg = String(result.get("%Message") ?? "");
+        throw new Error(`SQL Error [${sqlCode}]: ${msg}`);
+      }
+
+      const logs: LogEntry[] = [];
+      while (result.invokeBoolean("%Next")) {
+        logs.push({
+          id: result.invokeString("%Get", "ID") ?? "",
+          sessionId: result.invokeString("%Get", "SessionId") ?? "",
+          job: result.invokeString("%Get", "Job") ?? "",
+          type: result.invokeString("%Get", "Type") ?? "",
+          configName: result.invokeString("%Get", "ConfigName") ?? "",
+          text: result.invokeString("%Get", "Text") ?? "",
+          timeLogged: result.invokeString("%Get", "TimeLogged") ?? "",
+        });
+      }
+      return logs;
+    } catch (err: any) {
+      throw new Error(`Error al obtener logs de la production: ${err.message}`);
+    }
+  }
+
+  async updateProduction(): Promise<ProductionOperationResult> {
+    const instance = this.conn.getActiveInstance();
+
+    try {
+      const status = instance.classMethodValue("Ens.Director", "UpdateProduction", 10);
+      return this.resolveStatus(instance, status, "Production actualizada correctamente (configuración recargada).");
+    } catch (err: any) {
+      this.conn.invalidate();
+      throw new Error(`Error al actualizar la production: ${err.message}`);
+    }
+  }
+
+  async productionNeedsUpdate(): Promise<boolean> {
+    const instance = this.conn.getActiveInstance();
+
+    try {
+      const result = instance.classMethodValue("Ens.Director", "ProductionNeedsUpdate");
+      return Boolean(result);
+    } catch (err: any) {
+      throw new Error(`Error al verificar si la production necesita actualización: ${err.message}`);
+    }
+  }
+
+  async recoverProduction(): Promise<ProductionOperationResult> {
+    const instance = this.conn.getActiveInstance();
+
+    try {
+      const status = instance.classMethodValue("Ens.Director", "RecoverProduction");
+      return this.resolveStatus(instance, status, "Production recuperada correctamente.");
+    } catch (err: any) {
+      this.conn.invalidate();
+      throw new Error(`Error al recuperar la production: ${err.message}`);
     }
   }
 

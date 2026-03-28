@@ -30,4 +30,24 @@ export class ProductionUseCase {
   async getHosts(productionName: string) {
     return this.productionRepo.getHosts(productionName);
   }
+
+  async getQueues() {
+    return this.productionRepo.getQueues();
+  }
+
+  async getLogs(maxRows?: number) {
+    return this.productionRepo.getLogs(maxRows);
+  }
+
+  async updateProduction() {
+    return this.productionRepo.updateProduction();
+  }
+
+  async productionNeedsUpdate() {
+    return this.productionRepo.productionNeedsUpdate();
+  }
+
+  async recoverProduction() {
+    return this.productionRepo.recoverProduction();
+  }
 }

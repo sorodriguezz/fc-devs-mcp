@@ -32,6 +32,21 @@ export interface ProductionOperationResult {
   readonly message: string;
 }
 
+export interface QueueInfo {
+  readonly name: string;
+  readonly count: number;
+}
+
+export interface LogEntry {
+  readonly id: string;
+  readonly sessionId: string;
+  readonly job: string;
+  readonly type: string;
+  readonly configName: string;
+  readonly text: string;
+  readonly timeLogged: string;
+}
+
 export interface IIrisProductionRepository {
   getStatus(): Promise<ProductionStatus>;
   listProductions(): Promise<ProductionInfo[]>;
@@ -40,4 +55,9 @@ export interface IIrisProductionRepository {
   stopProduction(timeoutSeconds?: number): Promise<ProductionOperationResult>;
   restartProduction(): Promise<ProductionOperationResult>;
   getHosts(productionName: string): Promise<ProductionHost[]>;
+  getQueues(): Promise<QueueInfo[]>;
+  getLogs(maxRows?: number): Promise<LogEntry[]>;
+  updateProduction(): Promise<ProductionOperationResult>;
+  productionNeedsUpdate(): Promise<boolean>;
+  recoverProduction(): Promise<ProductionOperationResult>;
 }
