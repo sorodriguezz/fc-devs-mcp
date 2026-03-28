@@ -9,7 +9,7 @@ import { IrisProductionRepository } from "../infrastructure/iris-intersystem/Iri
 import { IrisGlobalsRepository } from "../infrastructure/iris-intersystem/IrisGlobalsRepository.js";
 import { AzureDevOpsMcpClient } from "../infrastructure/azure-devops/AzureDevOpsMcpClient.js";
 
-import { ExecSQLUseCase } from "../core/use-cases/iris-intersystem/ExecSQL.js";
+import { ExecSQLUseCase } from "../core/use-cases/iris-intersystem/sql/ExecSQLUseCase.js";
 import { ProductionUseCase } from "../core/use-cases/iris-intersystem/productions/ProductionUseCase.js";
 import { GlobalsUseCase } from "../core/use-cases/iris-intersystem/globals/GlobalsUseCase.js";
 

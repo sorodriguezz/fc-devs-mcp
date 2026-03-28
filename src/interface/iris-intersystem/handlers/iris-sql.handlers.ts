@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 import { inputSchema } from "../schemas/iris-query.schema.js";
 
-import type { ExecSQLUseCase } from "../../../core/use-cases/iris-intersystem/ExecSQL.js";
+import type { ExecSQLUseCase } from "../../../core/use-cases/iris-intersystem/sql/ExecSQLUseCase.js";
 
 export const registerIrisSQLTools = (
   server: McpServer,

@@ -1,4 +1,4 @@
-import type { IIrisRepository, SqlExecutionResult } from "../../interfaces/IIrisRepository.js";
+import type { IIrisRepository, SqlExecutionResult } from "../../../interfaces/IIrisRepository.js";
 
 export class ExecSQLUseCase {
   constructor(private readonly irisRepo: IIrisRepository) {}
