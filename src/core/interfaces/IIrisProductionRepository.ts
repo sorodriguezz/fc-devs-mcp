@@ -52,7 +52,7 @@ export interface IIrisProductionRepository {
   listProductions(): Promise<ProductionInfo[]>;
   createProduction(name: string, description?: string): Promise<ProductionOperationResult>;
   startProduction(name: string): Promise<ProductionOperationResult>;
-  stopProduction(timeoutSeconds?: number): Promise<ProductionOperationResult>;
+  stopProduction(): Promise<ProductionOperationResult>;
   restartProduction(): Promise<ProductionOperationResult>;
   getHosts(productionName: string): Promise<ProductionHost[]>;
   getQueues(): Promise<QueueInfo[]>;

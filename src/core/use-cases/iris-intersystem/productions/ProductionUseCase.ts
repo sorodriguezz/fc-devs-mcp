@@ -19,8 +19,8 @@ export class ProductionUseCase {
     return this.productionRepo.startProduction(name);
   }
 
-  async stopProduction(timeoutSeconds?: number) {
-    return this.productionRepo.stopProduction(timeoutSeconds);
+  async stopProduction() {
+    return this.productionRepo.stopProduction();
   }
 
   async restartProduction() {

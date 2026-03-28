@@ -17,15 +17,14 @@ export class IrisProductionRepository implements IIrisProductionRepository {
     const instance = this.conn.getActiveInstance();
 
     try {
-      const nameRef = new (instance.constructor?.IRISReference
-        ? instance.constructor.IRISReference
-        : this.getIrisReference(instance))("");
+      const RefClass = this.getIrisReference(instance);
+      const nameRef = new RefClass("");
+      const stateRef = new RefClass(0);
 
-      const statusCode = Number(
-        instance.classMethodValue("Ens.Director", "GetProductionStatus", nameRef) ?? 0,
-      );
+      instance.classMethodValue("Ens.Director", "GetProductionStatus", nameRef, stateRef);
 
       const productionName = this.resolveReference(nameRef);
+      const statusCode = Number(this.resolveReference(stateRef) ?? 0);
       const status = PRODUCTION_STATUS_MAP[statusCode] ?? "Unknown";
 
       console.error(`[IRIS:Production] Status: ${productionName || "(ninguna)"} → ${status}`);
@@ -98,7 +97,7 @@ export class IrisProductionRepository implements IIrisProductionRepository {
     const instance = this.conn.getActiveInstance();
 
     try {
-      const status = instance.classMethodValue("Ens.Director", "StartProduction", name.trim(), 10);
+      const status = instance.classMethodValue("Ens.Director", "StartProduction", name.trim());
       return this.resolveStatus(instance, status, `Production "${name}" iniciada correctamente.`);
     } catch (err: any) {
       this.conn.invalidate();
@@ -106,16 +105,11 @@ export class IrisProductionRepository implements IIrisProductionRepository {
     }
   }
 
-  async stopProduction(timeoutSeconds = 10): Promise<ProductionOperationResult> {
+  async stopProduction(_timeoutSeconds?: number): Promise<ProductionOperationResult> {
     const instance = this.conn.getActiveInstance();
 
     try {
-      const status = instance.classMethodValue(
-        "Ens.Director",
-        "StopProduction",
-        timeoutSeconds,
-        0,
-      );
+      const status = instance.classMethodValue("Ens.Director", "StopProduction");
       return this.resolveStatus(instance, status, "Production detenida correctamente.");
     } catch (err: any) {
       this.conn.invalidate();
@@ -127,19 +121,21 @@ export class IrisProductionRepository implements IIrisProductionRepository {
     const instance = this.conn.getActiveInstance();
 
     try {
-      const nameRef = new (this.getIrisReference(instance))("");
-      instance.classMethodValue("Ens.Director", "GetProductionStatus", nameRef);
+      const RefClass = this.getIrisReference(instance);
+      const nameRef = new RefClass("");
+      const stateRef = new RefClass(0);
+      instance.classMethodValue("Ens.Director", "GetProductionStatus", nameRef, stateRef);
       const productionName = this.resolveReference(nameRef);
 
       if (!productionName) {
         return { success: false, message: "No hay ninguna production activa para reiniciar." };
       }
 
-      const stopStatus = instance.classMethodValue("Ens.Director", "StopProduction", 10, 0);
+      const stopStatus = instance.classMethodValue("Ens.Director", "StopProduction");
       const stopResult = this.resolveStatus(instance, stopStatus, "");
       if (!stopResult.success) return { success: false, message: `Error al detener antes del reinicio: ${stopResult.message}` };
 
-      const startStatus = instance.classMethodValue("Ens.Director", "StartProduction", productionName, 10);
+      const startStatus = instance.classMethodValue("Ens.Director", "StartProduction", productionName);
       return this.resolveStatus(instance, startStatus, `Production "${productionName}" reiniciada correctamente.`);
     } catch (err: any) {
       this.conn.invalidate();
@@ -258,7 +254,7 @@ export class IrisProductionRepository implements IIrisProductionRepository {
     const instance = this.conn.getActiveInstance();
 
     try {
-      const status = instance.classMethodValue("Ens.Director", "UpdateProduction", 10);
+      const status = instance.classMethodValue("Ens.Director", "UpdateProduction");
       return this.resolveStatus(instance, status, "Production actualizada correctamente (configuración recargada).");
     } catch (err: any) {
       this.conn.invalidate();

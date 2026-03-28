@@ -101,9 +101,9 @@ export function registerIrisProductionTools(
         "Se puede especificar el timeout en segundos antes de forzar el stop.",
       inputSchema: stopProductionSchema,
     },
-    async (args) => {
+    async () => {
       try {
-        const result = await useCase.stopProduction(args.timeoutSeconds);
+        const result = await useCase.stopProduction();
         return { content: [{ type: "text" as const, text: toText(result) }] };
       } catch (err: any) {
         return { isError: true, content: [{ type: "text" as const, text: `Error: ${err.message}` }] };
