@@ -3,6 +3,11 @@
   "version": "1.0.0",
   "description": "A Model Context Protocol server for FC Devs.",
   "homepage": "https://github.com/sorodriguezz/fc-devs-mcp#readme",
+  "main": "index.js",
+  "type": "module",
+  "bin": {
+    "fc-mcp": "dist/index.js"
+  },
   "bugs": {
     "url": "https://github.com/sorodriguezz/fc-devs-mcp/issues"
   },
@@ -10,11 +15,38 @@
     "type": "git",
     "url": "git+https://github.com/sorodriguezz/fc-devs-mcp.git"
   },
-  "license": "ISC",
+  "license": "MIT",
   "author": "sorodriguezz",
-  "type": "commonjs",
-  "main": "index.js",
   "scripts": {
-    "start": ""
-  }
+    "build": "tsc && npx @modelcontextprotocol/inspector node dist/index.js",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@intersystems/intersystems-iris-native": "^2.0.3",
+    "@modelcontextprotocol/sdk": "^1.28.0",
+    "dotenv": "^17.3.1",
+    "env-var": "^7.5.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^6.0.2"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist/**/*",
+    "README.md",
+    "README.es.md"
+  ],
+  "readme": "README.md",
+  "keywords": [
+    "mcp",
+    "iris",
+    "azure",
+    "devops",
+    "mssql"
+  ]
 }
