@@ -3,22 +3,21 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 
 import { config } from "../infrastructure/config/env.js";
 
-// Infrastructure
 import { IrisConnectionManager } from "../infrastructure/iris-intersystem/IrisConnectionManager.js";
 import { IrisRepository } from "../infrastructure/iris-intersystem/IrisRepository.js";
 import { IrisProductionRepository } from "../infrastructure/iris-intersystem/IrisProductionRepository.js";
+import { IrisGlobalsRepository } from "../infrastructure/iris-intersystem/IrisGlobalsRepository.js";
 import { AzureDevOpsMcpClient } from "../infrastructure/azure-devops/AzureDevOpsMcpClient.js";
 
-// Use Cases
 import { ExecSQLUseCase } from "../core/use-cases/iris-intersystem/ExecSQL.js";
 import { ProductionUseCase } from "../core/use-cases/iris-intersystem/productions/ProductionUseCase.js";
+import { GlobalsUseCase } from "../core/use-cases/iris-intersystem/globals/GlobalsUseCase.js";
 
-// Tool Handlers
 import { registerIrisSQLTools } from "../interface/iris-intersystem/handlers/iris-sql.handlers.js";
 import { registerIrisProductionTools } from "../interface/iris-intersystem/handlers/iris-production.handlers.js";
+import { registerIrisGlobalsTools } from "../interface/iris-intersystem/handlers/iris-globals.handlers.js";
 import { registerAzureDevOpsTools } from "../interface/azure-devops/handlers/ado.handlers.js";
 
-// Lifecycle
 import { GracefulShutdown } from "./GracefulShutdown.js";
 
 export class McpApplication {
@@ -31,41 +30,37 @@ export class McpApplication {
     });
     const transport = new StdioServerTransport();
 
-    // ── Infrastructure ──────────────────────────────────────────
-    // Una sola conexión IRIS compartida entre todos los repositorios IRIS
     const irisConn = new IrisConnectionManager(config.iris);
     this.shutdown.register(irisConn);
 
     const irisRepo = new IrisRepository(irisConn);
     const irisProductionRepo = new IrisProductionRepository(irisConn);
+    const irisGlobalsRepo = new IrisGlobalsRepository(irisConn);
 
-    // Azure DevOps MCP (opcional — solo si ADO_ENABLED=true)
     let adoClient: AzureDevOpsMcpClient | null = null;
     if (config.ado.enabled) {
       adoClient = new AzureDevOpsMcpClient(config.ado);
       this.shutdown.register(adoClient);
     }
 
-    // ── Use Cases ───────────────────────────────────────────────
     const execSqlUseCase = new ExecSQLUseCase(irisRepo);
     const productionUseCase = new ProductionUseCase(irisProductionRepo);
+    const globalsUseCase = new GlobalsUseCase(irisGlobalsRepo);
 
-    // ── Tools ────────────────────────────────────────────────────
     registerIrisSQLTools(server, execSqlUseCase);
     registerIrisProductionTools(server, productionUseCase);
+    registerIrisGlobalsTools(server, globalsUseCase);
 
     if (adoClient) {
       try {
         const adoTools = await adoClient.connect();
         registerAzureDevOpsTools(server, adoClient, adoTools);
       } catch (err: any) {
-        // El servidor arranca igual si ADO falla — IRIS sigue operativo
         console.error(`⚠️  [ADO] No se pudo conectar al servidor Azure DevOps MCP: ${err.message}`);
         console.error("     Verifica AZURE_DEVOPS_ORG_URL, AZURE_DEVOPS_PAT y que npx esté disponible.");
       }
     }
 
-    // ── Lifecycle ───────────────────────────────────────────────
     this.shutdown.install((handler) => {
       transport.onclose = handler;
     });
