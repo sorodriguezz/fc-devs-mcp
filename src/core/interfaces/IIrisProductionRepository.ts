@@ -18,14 +18,10 @@ export interface ProductionStatus {
 export interface ProductionInfo {
   readonly name: string;
   readonly description: string;
-  readonly autoStart: boolean;
-  // Nota: Ens_Config.Production no tiene columna Enabled.
-  // La production se activa/desactiva via Start/StopProduction.
 }
 
 export interface ProductionHost {
   readonly name: string;
-  /** Nombre completo de la clase ObjectScript del host (ej: EnsLib.HL7.Service.TCPService) */
   readonly className: string;
   readonly poolSize: number;
   readonly enabled: boolean;
@@ -39,6 +35,7 @@ export interface ProductionOperationResult {
 export interface IIrisProductionRepository {
   getStatus(): Promise<ProductionStatus>;
   listProductions(): Promise<ProductionInfo[]>;
+  createProduction(name: string, description?: string): Promise<ProductionOperationResult>;
   startProduction(name: string): Promise<ProductionOperationResult>;
   stopProduction(timeoutSeconds?: number): Promise<ProductionOperationResult>;
   restartProduction(): Promise<ProductionOperationResult>;

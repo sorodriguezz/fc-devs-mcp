@@ -11,6 +11,10 @@ export class ProductionUseCase {
     return this.productionRepo.listProductions();
   }
 
+  async createProduction(name: string, description?: string) {
+    return this.productionRepo.createProduction(name, description);
+  }
+
   async startProduction(name: string) {
     return this.productionRepo.startProduction(name);
   }

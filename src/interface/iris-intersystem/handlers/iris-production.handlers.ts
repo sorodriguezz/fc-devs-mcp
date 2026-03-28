@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import type { ProductionUseCase } from "../../../core/use-cases/iris-intersystem/productions/ProductionUseCase.js";
 import {
+  createProductionSchema,
   startProductionSchema,
   stopProductionSchema,
   getHostsSchema,
@@ -41,12 +42,31 @@ export function registerIrisProductionTools(
       title: "Listar Productions",
       description:
         "Lista todas las Productions configuradas en el namespace actual de IRIS, " +
-        "con nombre, descripción, estado habilitado y autostart.",
+        "con nombre y descripción.",
       inputSchema: z.object({}),
     },
     async () => {
       try {
         const result = await useCase.listProductions();
+        return { content: [{ type: "text", text: toText(result) }] };
+      } catch (err: any) {
+        return { isError: true, content: [{ type: "text", text: `Error: ${err.message}` }] };
+      }
+    },
+  );
+
+  server.registerTool(
+    "iris_production_create",
+    {
+      title: "Crear Production",
+      description:
+        "Crea una nueva Production en IRIS con el nombre especificado y una descripción opcional. " +
+        "Falla si ya existe una Production con el mismo nombre.",
+      inputSchema: createProductionSchema,
+    },
+    async (args) => {
+      try {
+        const result = await useCase.createProduction(args.name, args.description);
         return { content: [{ type: "text", text: toText(result) }] };
       } catch (err: any) {
         return { isError: true, content: [{ type: "text", text: `Error: ${err.message}` }] };

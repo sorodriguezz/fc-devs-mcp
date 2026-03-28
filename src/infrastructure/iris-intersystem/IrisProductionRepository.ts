@@ -42,8 +42,7 @@ export class IrisProductionRepository implements IIrisProductionRepository {
   async listProductions(): Promise<ProductionInfo[]> {
     const instance = this.conn.getActiveInstance();
 
-    const query =
-      "SELECT Name, Description, AutoStart FROM Ens_Config.Production ORDER BY Name";
+    const query = "SELECT Name, Description FROM Ens_Config.Production ORDER BY Name";
 
     try {
       const result = instance.classMethodObject("%SYSTEM.SQL", "Execute", query);
@@ -60,12 +59,34 @@ export class IrisProductionRepository implements IIrisProductionRepository {
         productions.push({
           name: result.invokeString("%Get", "Name") ?? "",
           description: result.invokeString("%Get", "Description") ?? "",
-          autoStart: result.invokeString("%Get", "AutoStart") === "1",
         });
       }
       return productions;
     } catch (err: any) {
       throw new Error(`Error al listar productions: ${err.message}`);
+    }
+  }
+
+  async createProduction(name: string, description = ""): Promise<ProductionOperationResult> {
+    if (!name?.trim()) throw new Error("El nombre de la production no puede estar vacío.");
+
+    const instance = this.conn.getActiveInstance();
+
+    try {
+      const existing = instance.classMethodValue("Ens.Config.Production", "%ExistsId", name.trim());
+      if (existing) {
+        return { success: false, message: `La production "${name}" ya existe.` };
+      }
+
+      const prod = instance.classMethodObject("Ens.Config.Production", "%New");
+      prod.set("Name", name.trim());
+      prod.set("Description", description.trim());
+
+      const status = prod.invoke("%Save");
+      return this.resolveStatus(instance, status, `Production "${name}" creada correctamente.`);
+    } catch (err: any) {
+      this.conn.invalidate();
+      throw new Error(`Error al crear la production "${name}": ${err.message}`);
     }
   }
 
@@ -117,8 +138,6 @@ export class IrisProductionRepository implements IIrisProductionRepository {
 
     const instance = this.conn.getActiveInstance();
     const safeName = productionName.trim().replace(/'/g, "''");
-    // Ens_Config.Item: columna real es ClassName (no BusinessType).
-    // BusinessType es un concepto del portal, no una columna SQL directa.
     const query = `
       SELECT Name, ClassName, PoolSize, Enabled
       FROM Ens_Config.Item
@@ -178,7 +197,7 @@ export class IrisProductionRepository implements IIrisProductionRepository {
     try {
       const irisModule = require("@intersystems/intersystems-iris-native");
       if (irisModule?.IRISReference) return irisModule.IRISReference;
-    } catch { /* módulo no disponible */ }
+    } catch {}
 
     return class {
       private _val: unknown;
