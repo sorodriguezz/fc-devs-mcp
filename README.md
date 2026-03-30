@@ -103,12 +103,12 @@ Luego en la configuración del cliente MCP:
 ```json
 {
   "mcpServers": {
-    "iris-desa-sap": {
+    "mcp-fc": {
       "command": "fc-mcp",
       "env": {
         "IRIS_HOSTNAME": "192.168.1.100",
         "IRIS_PORT": "1972",
-        "IRIS_NAMESPACE": "ENSSAP",
+        "IRIS_NAMESPACE": "NAMESPACE",
         "IRIS_USERNAME": "usuario",
         "IRIS_PASSWORD": "contraseña"
       }
