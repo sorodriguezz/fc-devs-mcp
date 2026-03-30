@@ -38,7 +38,8 @@ Las variables de entorno se pasan en la configuración del cliente MCP:
         "IRIS_PORT": "1972",
         "IRIS_NAMESPACE": "NAMESPACE",
         "IRIS_USERNAME": "usuario",
-        "IRIS_PASSWORD": "contraseña"
+        "IRIS_PASSWORD": "contraseña",
+        "ADO_ENABLED": "false"
       }
     }
   }
