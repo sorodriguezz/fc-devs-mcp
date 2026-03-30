@@ -1,0 +1,27 @@
+# Source TypeScript (no se publica, solo el dist compilado)
+src/
+
+# Configuración local y secretos
+.env
+.env.*
+!.env.example
+
+# Dev tools
+tsconfig.json
+.eslintrc*
+.prettierrc*
+
+# VCS
+.git/
+.gitignore
+
+# Dependencias locales
+node_modules/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,9 +1,9 @@
 {
   "name": "fc-devs-mcp",
   "version": "1.0.0",
-  "description": "A Model Context Protocol server for FC Devs.",
+  "description": "A Model Context Protocol server for FC Devs — IRIS InterSystems & Azure DevOps integration.",
   "homepage": "https://github.com/sorodriguezz/fc-devs-mcp#readme",
-  "main": "index.js",
+  "main": "dist/index.js",
   "type": "module",
   "bin": {
     "fc-mcp": "dist/index.js"
@@ -17,10 +17,14 @@
   },
   "license": "MIT",
   "author": "sorodriguezz",
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "scripts": {
     "build": "tsc",
-    "build:inspec": "tsc && npx @modelcontextprotocol/inspector node dist/index.js",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "dev": "node --watch dist/index.js",
+    "inspect": "tsc && npx @modelcontextprotocol/inspector node dist/index.js"
   },
   "dependencies": {
     "@intersystems/intersystems-iris-native": "^2.0.3",
@@ -40,14 +44,15 @@
   "files": [
     "dist/**/*",
     "README.md",
-    "README.es.md"
+    "README.es.md",
+    ".env.example"
   ],
-  "readme": "README.md",
   "keywords": [
     "mcp",
     "iris",
+    "intersystems",
     "azure",
     "devops",
-    "mssql"
+    "model-context-protocol"
   ]
 }

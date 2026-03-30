@@ -16,16 +16,23 @@ export class AzureDevOpsMcpClient implements Closeable {
 
   constructor(private readonly config: IAzureDevOpsConfig) {}
 
+  private extractOrgName(orgUrl: string): string {
+    const match = orgUrl.match(/dev\.azure\.com\/([^/]+)/);
+    return match ? match[1] : orgUrl.replace(/\/$/, "");
+  }
+
   async connect(): Promise<Tool[]> {
-    console.error("🔗 [ADO] Iniciando cliente Azure DevOps MCP...");
+    const orgName = this.extractOrgName(this.config.orgUrl);
+    console.error(`🔗 [ADO] Iniciando cliente Azure DevOps MCP para org: ${orgName}`);
 
     this.transport = new StdioClientTransport({
       command: "npx",
-      args: ["-y", "@azure-devops/mcp"],
+      args: ["-y", "@azure-devops/mcp", orgName, "--authentication", "envvar"],
       env: {
         ...process.env as Record<string, string>,
         AZURE_DEVOPS_ORG_URL: this.config.orgUrl,
-        AZURE_DEVOPS_PAT: this.config.pat,
+        AZURE_DEVOPS_EXT_PAT: this.config.pat,
+        ADO_MCP_AUTH_TOKEN: this.config.pat,
       },
       stderr: "inherit",
     });

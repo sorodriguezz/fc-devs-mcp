@@ -33,15 +33,18 @@ export class McpApplication {
     const irisConn = new IrisConnectionManager(config.iris);
     this.shutdown.register(irisConn);
 
+    try {
+      irisConn.getActiveInstance();
+    } catch (err: any) {
+      console.error(`💥 [IRIS] No se pudo conectar a IRIS en arranque.`);
+      console.error(`   Host: ${config.iris.hostname}:${config.iris.port} / Namespace: ${config.iris.namespace}`);
+      console.error(`   Error: ${err.message}`);
+      process.exit(1);
+    }
+
     const irisRepo = new IrisRepository(irisConn);
     const irisProductionRepo = new IrisProductionRepository(irisConn);
     const irisGlobalsRepo = new IrisGlobalsRepository(irisConn);
-
-    let adoClient: AzureDevOpsMcpClient | null = null;
-    if (config.ado.enabled) {
-      adoClient = new AzureDevOpsMcpClient(config.ado);
-      this.shutdown.register(adoClient);
-    }
 
     const execSqlUseCase = new ExecSQLUseCase(irisRepo);
     const productionUseCase = new ProductionUseCase(irisProductionRepo);
@@ -51,13 +54,19 @@ export class McpApplication {
     registerIrisProductionTools(server, productionUseCase);
     registerIrisGlobalsTools(server, globalsUseCase);
 
-    if (adoClient) {
+    if (config.ado.enabled) {
+      const adoClient = new AzureDevOpsMcpClient(config.ado);
+      this.shutdown.register(adoClient);
+
       try {
         const adoTools = await adoClient.connect();
         registerAzureDevOpsTools(server, adoClient, adoTools);
       } catch (err: any) {
-        console.error(`⚠️  [ADO] No se pudo conectar al servidor Azure DevOps MCP: ${err.message}`);
-        console.error("     Verifica AZURE_DEVOPS_ORG_URL, AZURE_DEVOPS_PAT y que npx esté disponible.");
+        console.error(`💥 [ADO] No se pudo conectar a Azure DevOps MCP.`);
+        console.error(`   Org: ${config.ado.orgUrl}`);
+        console.error(`   Error: ${err.message}`);
+        console.error(`   Verifica AZURE_DEVOPS_ORG_URL, AZURE_DEVOPS_PAT y que npx esté disponible.`);
+        process.exit(1);
       }
     }
 
@@ -67,11 +76,9 @@ export class McpApplication {
 
     await server.connect(transport);
 
-    console.error(
-      `🚀 [MCP] Servidor "${config.server.name}" v${config.server.version} iniciado.`,
-    );
+    console.error(`🚀 [MCP] Servidor "${config.server.name}" v${config.server.version} iniciado.`);
     if (config.ado.enabled) {
-      console.error(`🔗 [ADO] Integración Azure DevOps ${adoClient ? "activa" : "falló al iniciar"}.`);
+      console.error(`🔗 [ADO] Integración Azure DevOps activa.`);
     }
   }
 }

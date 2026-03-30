@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 
@@ -16,14 +17,13 @@ export function registerAzureDevOpsTools(
   for (const tool of tools) {
     const toolName = tool.name;
     const toolDescription = tool.description ?? `Azure DevOps: ${toolName}`;
-    const inputSchema = (tool.inputSchema ?? { type: "object", properties: {} }) as Record<string, unknown>;
 
     server.registerTool(
       toolName,
       {
         title: tool.title ?? toolName,
         description: `[Azure DevOps] ${toolDescription}`,
-        inputSchema: inputSchema as any,
+        inputSchema: z.record(z.string(), z.unknown()),
       },
       async (args: Record<string, unknown>) => {
         try {

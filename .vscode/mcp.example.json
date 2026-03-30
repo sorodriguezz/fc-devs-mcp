@@ -1,0 +1,34 @@
+{
+  "servers": {
+    "mcp-fc": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["${workspaceFolder}/dist/index.js"],
+      "env": {
+        "IRIS_HOSTNAME": "HOST",
+        "IRIS_PORT": "1972",
+        "IRIS_NAMESPACE": "NAMESPACE",
+        "IRIS_USERNAME": "USUARIO",
+        "IRIS_PASSWORD": "PASSWORD",
+        "MCP_SERVER_NAME": "MCP-FC",
+        "ADO_ENABLED": "false"
+      }
+    },
+    "mcp-fc-two": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["${workspaceFolder}/dist/index.js"],
+      "env": {
+        "IRIS_HOSTNAME": "HOST2",
+        "IRIS_PORT": "1972",
+        "IRIS_NAMESPACE": "NAMESPACE2",
+        "IRIS_USERNAME": "USUARIO",
+        "IRIS_PASSWORD": "PASSWORD",
+        "MCP_SERVER_NAME": "MCP-FC-TWO",
+        "ADO_ENABLED": "true",
+        "AZURE_DEVOPS_ORG_URL": "https://dev.azure.com/your_organization",
+        "AZURE_DEVOPS_PAT": "Ev4r2234Ms..."
+      }
+    }
+  }
+}
