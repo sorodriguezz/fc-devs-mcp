@@ -1,34 +1,92 @@
 {
   "servers": {
-    "mcp-fc": {
+
+    // ── Modo local: apunta al dist compilado del repositorio clonado ──────────
+    "fc-mcp-local": {
       "type": "stdio",
       "command": "node",
       "args": ["${workspaceFolder}/dist/index.js"],
       "env": {
-        "IRIS_HOSTNAME": "HOST",
+        "MCP_SERVER_NAME": "FC-MCP-Local",
+        "IRIS_ENABLED": "true",
+        "IRIS_HOSTNAME": "10.0.0.42",
         "IRIS_PORT": "1972",
-        "IRIS_NAMESPACE": "NAMESPACE",
-        "IRIS_USERNAME": "USUARIO",
-        "IRIS_PASSWORD": "PASSWORD",
-        "MCP_SERVER_NAME": "MCP-FC",
+        "IRIS_NAMESPACE": "APPNS",
+        "IRIS_USERNAME": "admin",
+        "IRIS_PASSWORD": "s3cr3tIris!",
+        "MSSQL_ENABLED": "false",
         "ADO_ENABLED": "false"
       }
     },
-    "mcp-fc-two": {
+
+    // ── Modo local con dos instancias (IRIS + ADO) ────────────────────────────
+    "fc-mcp-local-full": {
       "type": "stdio",
       "command": "node",
       "args": ["${workspaceFolder}/dist/index.js"],
       "env": {
-        "IRIS_HOSTNAME": "HOST2",
+        "MCP_SERVER_NAME": "FC-MCP-Local-Full",
+        "IRIS_ENABLED": "true",
+        "IRIS_HOSTNAME": "10.0.0.42",
         "IRIS_PORT": "1972",
-        "IRIS_NAMESPACE": "NAMESPACE2",
-        "IRIS_USERNAME": "USUARIO",
-        "IRIS_PASSWORD": "PASSWORD",
-        "MCP_SERVER_NAME": "MCP-FC-TWO",
+        "IRIS_NAMESPACE": "APPNS",
+        "IRIS_USERNAME": "admin",
+        "IRIS_PASSWORD": "s3cr3tIris!",
+        "MSSQL_ENABLED": "true",
+        "MSSQL_HOSTNAME": "10.0.1.55",
+        "MSSQL_PORT": "1433",
+        "MSSQL_DATABASE": "inventory_db",
+        "MSSQL_USERNAME": "app_user",
+        "MSSQL_PASSWORD": "Sup3rS3cur3!",
+        "MSSQL_ENCRYPT": "false",
+        "MSSQL_TRUST_SERVER_CERT": "true",
         "ADO_ENABLED": "true",
-        "AZURE_DEVOPS_ORG_URL": "https://dev.azure.com/your_organization",
-        "AZURE_DEVOPS_PAT": "Ev4r2234Ms..."
+        "AZURE_DEVOPS_ORG_URL": "https://dev.azure.com/contoso-devs",
+        "AZURE_DEVOPS_PAT": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      }
+    },
+
+    // ── Modo npmjs: versión fija (recomendado para producción) ────────────────
+    // Cambia el número de versión manualmente cuando quieras actualizar.
+    // npx usa caché local y no descarga de nuevo hasta que limpies la caché
+    // o cambies el número de versión.
+    "fc-mcp-npm-fixed": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "fc-devs-mcp@1.0.0"],
+      "env": {
+        "MCP_SERVER_NAME": "FC-MCP-NPM",
+        "IRIS_ENABLED": "true",
+        "IRIS_HOSTNAME": "10.0.0.42",
+        "IRIS_PORT": "1972",
+        "IRIS_NAMESPACE": "APPNS",
+        "IRIS_USERNAME": "admin",
+        "IRIS_PASSWORD": "s3cr3tIris!",
+        "MSSQL_ENABLED": "false",
+        "ADO_ENABLED": "false"
+      }
+    },
+
+    // ── Modo npmjs: siempre la última versión publicada ────────────────────────
+    // --prefer-online fuerza a npx a consultar npm en cada arranque,
+    // ignorando la caché local. Garantiza la versión más reciente
+    // pero requiere conexión a internet y agrega ~1-2s de latencia al inicio.
+    "fc-mcp-npm-latest": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["--yes", "--prefer-online", "fc-devs-mcp"],
+      "env": {
+        "MCP_SERVER_NAME": "FC-MCP-NPM-Latest",
+        "IRIS_ENABLED": "true",
+        "IRIS_HOSTNAME": "10.0.0.42",
+        "IRIS_PORT": "1972",
+        "IRIS_NAMESPACE": "APPNS",
+        "IRIS_USERNAME": "admin",
+        "IRIS_PASSWORD": "s3cr3tIris!",
+        "MSSQL_ENABLED": "false",
+        "ADO_ENABLED": "false"
       }
     }
+
   }
 }
