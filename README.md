@@ -31,11 +31,14 @@ Cada integración es completamente opcional y se activa mediante un flag de ento
 | Variable                  | Requerida si enabled | Default | Descripción                                                          |
 | ------------------------- | -------------------- | ------- | -------------------------------------------------------------------- |
 | `MSSQL_ENABLED`           | —                    | `false` | Habilitar integración SQL Server                                     |
+| `MSSQL_AUTH`              | ❌                   | `sql`   | Modo de autenticación: `sql` (usuario/contraseña SQL) o `azure-ad-password` (Microsoft Entra ID) |
 | `MSSQL_HOSTNAME`          | ✅                   | —       | Host del servidor (local, Azure SQL, K8s service DNS, etc.)          |
 | `MSSQL_PORT`              | ❌                   | `1433`  | Puerto SQL Server                                                    |
 | `MSSQL_DATABASE`          | ✅                   | —       | Base de datos destino                                                |
-| `MSSQL_USERNAME`          | ✅                   | —       | Usuario SQL                                                          |
-| `MSSQL_PASSWORD`          | ✅                   | —       | Contraseña SQL                                                       |
+| `MSSQL_USERNAME`          | ✅                   | —       | Usuario SQL, o correo Entra ID (ej. `usuario@empresa.cl`) si `MSSQL_AUTH=azure-ad-password` |
+| `MSSQL_PASSWORD`          | ✅                   | —       | Contraseña del usuario                                               |
+| `MSSQL_AZURE_CLIENT_ID`   | ❌                   | client público de Azure SQL | Solo si quieres usar tu propia App registrada en Entra ID. Por defecto usa el mismo client público que DBeaver |
+| `MSSQL_AZURE_TENANT_ID`   | ❌                   | dominio del correo | Solo para forzar un tenant. Por defecto se deriva del dominio de `MSSQL_USERNAME` (o `organizations`) |
 | `MSSQL_ENCRYPT`           | ❌                   | `true`  | TLS habilitado. Requerido en Azure SQL; `false` en instancias locales |
 | `MSSQL_TRUST_SERVER_CERT` | ❌                   | `false` | Aceptar certificados autofirmados. Solo `true` en entornos dev       |
 
@@ -59,8 +62,8 @@ No requiere clonar el repositorio. El cliente MCP ejecuta el paquete directament
 {
   "mcpServers": {
     "fc-mcp": {
-      "command": "npx",
-      "args": ["-y", "fc-devs-mcp"],
+      "command": "npx.cmd",
+      "args": ["--yes", "--prefer-online", "fc-devs-mcp"],
       "env": {
         "IRIS_ENABLED": "true",
         "IRIS_HOSTNAME": "10.0.0.42",
@@ -80,8 +83,8 @@ No requiere clonar el repositorio. El cliente MCP ejecuta el paquete directament
 {
   "mcpServers": {
     "fc-mcp": {
-      "command": "npx",
-      "args": ["-y", "fc-devs-mcp"],
+      "command": "npx.cmd",
+      "args": ["--yes", "--prefer-online", "fc-devs-mcp"],
       "env": {
         "IRIS_ENABLED": "false",
         "MSSQL_ENABLED": "true",
@@ -104,8 +107,8 @@ No requiere clonar el repositorio. El cliente MCP ejecuta el paquete directament
 {
   "mcpServers": {
     "fc-mcp": {
-      "command": "npx",
-      "args": ["-y", "fc-devs-mcp"],
+      "command": "npx.cmd",
+      "args": ["--yes", "--prefer-online", "fc-devs-mcp"],
       "env": {
         "IRIS_ENABLED": "false",
         "MSSQL_ENABLED": "true",
@@ -122,14 +125,43 @@ No requiere clonar el repositorio. El cliente MCP ejecuta el paquete directament
 }
 ```
 
+### Solo SQL Server (Azure SQL con Entra ID — Active Directory - Password)
+
+Igual que el modo **"Active Directory - Password"** de DBeaver: solo necesitas **usuario (correo Entra ID) + contraseña**. No hace falta registrar una App ni indicar tenant/client — se usa el client público de Azure SQL por defecto y el tenant se deriva del dominio del correo.
+
+```json
+{
+  "mcpServers": {
+    "fc-mcp": {
+      "command": "npx.cmd",
+      "args": ["--yes", "--prefer-online", "fc-devs-mcp"],
+      "env": {
+        "IRIS_ENABLED": "false",
+        "ADO_ENABLED": "false",
+        "MSSQL_ENABLED": "true",
+        "MSSQL_AUTH": "azure-ad-password",
+        "MSSQL_HOSTNAME": "mi-servidor.database.windows.net",
+        "MSSQL_PORT": "1433",
+        "MSSQL_DATABASE": "mi_base_datos",
+        "MSSQL_USERNAME": "usuario@empresa.cl",
+        "MSSQL_PASSWORD": "tu-contraseña-entra-id",
+        "MSSQL_ENCRYPT": "true"
+      }
+    }
+  }
+}
+```
+
+> Si necesitas una App registrada propia o forzar un tenant específico, puedes añadir `MSSQL_AZURE_CLIENT_ID` y `MSSQL_AZURE_TENANT_ID` (ambos opcionales).
+
 ### SQL Server dentro de Kubernetes
 
 ```json
 {
   "mcpServers": {
     "fc-mcp": {
-      "command": "npx",
-      "args": ["-y", "fc-devs-mcp"],
+      "command": "npx.cmd",
+      "args": ["--yes", "--prefer-online", "fc-devs-mcp"],
       "env": {
         "IRIS_ENABLED": "false",
         "MSSQL_ENABLED": "true",
@@ -152,8 +184,8 @@ No requiere clonar el repositorio. El cliente MCP ejecuta el paquete directament
 {
   "mcpServers": {
     "fc-mcp": {
-      "command": "npx",
-      "args": ["-y", "fc-devs-mcp"],
+      "command": "npx.cmd",
+      "args": ["--yes", "--prefer-online", "fc-devs-mcp"],
       "env": {
         "IRIS_ENABLED": "true",
         "IRIS_HOSTNAME": "10.0.0.42",
@@ -178,7 +210,7 @@ No requiere clonar el repositorio. El cliente MCP ejecuta el paquete directament
 }
 ```
 
-> **Nota:** `npx -y` descarga la última versión automáticamente en el primer uso. Para fijar una versión específica usa `npx -y fc-devs-mcp@1.0.0`.
+> **Nota:** `--yes --prefer-online` obliga a `npx` a consultar npm en cada arranque (ignora la caché local), por lo que siempre se ejecuta la **última versión publicada**. En Windows el binario es `npx.cmd`; en macOS/Linux usa `npx`.
 
 ---
 

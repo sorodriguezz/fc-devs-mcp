@@ -144,16 +144,9 @@ export class McpApplication {
         console.error(`💥 [MSSQL] Variables requeridas faltantes: ${missing.map((k) => `MSSQL_${k.toUpperCase()}`).join(", ")}`);
         process.exit(1);
       }
-
-      if (config.mssql.authType === "azure-ad-password") {
-        const missingAad: string[] = [];
-        if (!config.mssql.azureClientId) missingAad.push("MSSQL_AZURE_CLIENT_ID");
-        if (!config.mssql.azureTenantId) missingAad.push("MSSQL_AZURE_TENANT_ID");
-        if (missingAad.length) {
-          console.error(`💥 [MSSQL] Auth 'azure-ad-password' requiere: ${missingAad.join(", ")}`);
-          process.exit(1);
-        }
-      }
+      // En 'azure-ad-password', MSSQL_AZURE_CLIENT_ID y MSSQL_AZURE_TENANT_ID son
+      // opcionales: si se omiten se usa el client público de Azure SQL y el
+      // tenant se deriva del dominio del correo (igual que DBeaver).
     }
 
     if (config.ado.enabled) {

@@ -19,6 +19,29 @@
       }
     },
 
+    // ── Modo local: SQL Server con Entra ID (Active Directory - Password) ──────
+    // Igual que DBeaver: solo usuario (correo Entra ID) + contraseña.
+    // El client ID usa el client público de Azure SQL por defecto y el tenant
+    // se deriva del dominio del correo, así que NO hace falta tenant/client ID.
+    "fc-mcp-mssql-entra": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["${workspaceFolder}/dist/index.js"],
+      "env": {
+        "MCP_SERVER_NAME": "FC-MCP-MSSQL-Entra",
+        "IRIS_ENABLED": "false",
+        "ADO_ENABLED": "false",
+        "MSSQL_ENABLED": "true",
+        "MSSQL_AUTH": "azure-ad-password",
+        "MSSQL_HOSTNAME": "mi-servidor.database.windows.net",
+        "MSSQL_PORT": "1433",
+        "MSSQL_DATABASE": "mi_base_datos",
+        "MSSQL_USERNAME": "usuario@empresa.cl",
+        "MSSQL_PASSWORD": "tu-contrasena-entra-id",
+        "MSSQL_ENCRYPT": "true"
+      }
+    },
+
     // ── Modo local con dos instancias (IRIS + ADO) ────────────────────────────
     "fc-mcp-local-full": {
       "type": "stdio",
@@ -46,34 +69,13 @@
       }
     },
 
-    // ── Modo npmjs: versión fija (recomendado para producción) ────────────────
-    // Cambia el número de versión manualmente cuando quieras actualizar.
-    // npx usa caché local y no descarga de nuevo hasta que limpies la caché
-    // o cambies el número de versión.
-    "fc-mcp-npm-fixed": {
-      "type": "stdio",
-      "command": "npx",
-      "args": ["-y", "fc-devs-mcp@1.0.0"],
-      "env": {
-        "MCP_SERVER_NAME": "FC-MCP-NPM",
-        "IRIS_ENABLED": "true",
-        "IRIS_HOSTNAME": "10.0.0.42",
-        "IRIS_PORT": "1972",
-        "IRIS_NAMESPACE": "APPNS",
-        "IRIS_USERNAME": "admin",
-        "IRIS_PASSWORD": "s3cr3tIris!",
-        "MSSQL_ENABLED": "false",
-        "ADO_ENABLED": "false"
-      }
-    },
-
-    // ── Modo npmjs: siempre la última versión publicada ────────────────────────
-    // --prefer-online fuerza a npx a consultar npm en cada arranque,
-    // ignorando la caché local. Garantiza la versión más reciente
-    // pero requiere conexión a internet y agrega ~1-2s de latencia al inicio.
+    // ── Modo npmjs: siempre la última versión publicada ───────────────────────
+    // npx.cmd + "--yes --prefer-online" obliga a npx a consultar npm en cada
+    // arranque, ignorando la caché local, para usar siempre la última versión.
+    // (En macOS/Linux usa "npx" en lugar de "npx.cmd").
     "fc-mcp-npm-latest": {
       "type": "stdio",
-      "command": "npx",
+      "command": "npx.cmd",
       "args": ["--yes", "--prefer-online", "fc-devs-mcp"],
       "env": {
         "MCP_SERVER_NAME": "FC-MCP-NPM-Latest",
@@ -85,6 +87,28 @@
         "IRIS_PASSWORD": "s3cr3tIris!",
         "MSSQL_ENABLED": "false",
         "ADO_ENABLED": "false"
+      }
+    },
+
+    // ── Modo npmjs: SQL Server con Entra ID, siempre la última versión ─────────
+    // Solo usuario + contraseña (igual que DBeaver). Requiere haber publicado
+    // la versión con soporte azure-ad-password.
+    "fc-mcp-mssql-entra-npm": {
+      "type": "stdio",
+      "command": "npx.cmd",
+      "args": ["--yes", "--prefer-online", "fc-devs-mcp"],
+      "env": {
+        "MCP_SERVER_NAME": "FC-MCP-MSSQL-Entra-NPM",
+        "IRIS_ENABLED": "false",
+        "ADO_ENABLED": "false",
+        "MSSQL_ENABLED": "true",
+        "MSSQL_AUTH": "azure-ad-password",
+        "MSSQL_HOSTNAME": "mi-servidor.database.windows.net",
+        "MSSQL_PORT": "1433",
+        "MSSQL_DATABASE": "mi_base_datos",
+        "MSSQL_USERNAME": "usuario@empresa.cl",
+        "MSSQL_PASSWORD": "tu-contrasena-entra-id",
+        "MSSQL_ENCRYPT": "true"
       }
     }
 

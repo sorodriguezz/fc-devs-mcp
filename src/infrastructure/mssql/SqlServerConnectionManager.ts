@@ -11,6 +11,16 @@ import type { Closeable } from "../../server/GracefulShutdown.js";
  */
 export type MssqlAuthType = "sql" | "azure-ad-password";
 
+/**
+ * Client ID público que usa el driver oficial de Microsoft (mssql-jdbc) — y por
+ * lo tanto DBeaver en su modo "Active Directory - Password" — para el flujo
+ * ROPC contra Azure SQL. Al venir como default, el usuario solo necesita
+ * indicar usuario + contraseña, igual que en DBeaver.
+ * Fuente: mssql-jdbc ActiveDirectoryAuthentication.JDBC_FEDAUTH_CLIENT_ID.
+ */
+export const DEFAULT_AZURE_SQL_CLIENT_ID =
+  "7f98cb04-cd1e-40df-9140-3bf7e2cea4db";
+
 export interface ISqlServerConfig {
   readonly hostname: string;
   readonly port: number;
@@ -21,9 +31,16 @@ export interface ISqlServerConfig {
   readonly trustServerCertificate: boolean;
   /** Modo de autenticación. Por defecto "sql". */
   readonly authType: MssqlAuthType;
-  /** App (client) ID registrada en Entra ID. Requerido para "azure-ad-password". */
+  /**
+   * App (client) ID de Entra ID. Opcional: si se omite se usa el client público
+   * de Azure SQL ({@link DEFAULT_AZURE_SQL_CLIENT_ID}), como hace DBeaver.
+   */
   readonly azureClientId?: string;
-  /** Tenant ID de Entra ID. Requerido para "azure-ad-password". */
+  /**
+   * Tenant de Entra ID. Opcional: si se omite se deriva del dominio del correo
+   * en `username` (ej. `usuario@empresa.cl` → `empresa.cl`), y si no es posible
+   * se usa `organizations`.
+   */
   readonly azureTenantId?: string;
 }
 
@@ -78,20 +95,19 @@ export class SqlServerConnectionManager implements Closeable {
     };
 
     if (this.config.authType === "azure-ad-password") {
-      const { azureClientId, azureTenantId, username, password } = this.config;
+      const { username, password } = this.config;
 
-      if (!azureClientId || !azureTenantId) {
-        throw new Error(
-          "[MSSQL] La autenticación 'azure-ad-password' requiere " +
-            "MSSQL_AZURE_CLIENT_ID y MSSQL_AZURE_TENANT_ID.",
-        );
-      }
+      // Solo usuario + contraseña son obligatorios (igual que DBeaver).
       if (!username || !password) {
         throw new Error(
           "[MSSQL] La autenticación 'azure-ad-password' requiere " +
             "MSSQL_USERNAME (correo Entra ID) y MSSQL_PASSWORD.",
         );
       }
+
+      // Client público de Azure SQL por defecto; el tenant se deriva del correo.
+      const clientId = this.config.azureClientId?.trim() || DEFAULT_AZURE_SQL_CLIENT_ID;
+      const tenantId = this.resolveTenantId(username);
 
       return {
         ...base,
@@ -102,8 +118,8 @@ export class SqlServerConnectionManager implements Closeable {
           options: {
             userName: username,
             password,
-            clientId: azureClientId,
-            tenantId: azureTenantId,
+            clientId,
+            tenantId,
           },
         },
       };
@@ -115,5 +131,19 @@ export class SqlServerConnectionManager implements Closeable {
       user: this.config.username,
       password: this.config.password,
     };
+  }
+
+  /**
+   * Determina el tenant de Entra ID para el flujo azure-ad-password.
+   * Prioridad: valor explícito → dominio del correo (`user@dominio`) →
+   * `organizations`. Entra ID acepta un dominio verificado como autoridad,
+   * por eso no hace falta el GUID del tenant.
+   */
+  private resolveTenantId(username: string): string {
+    const explicit = this.config.azureTenantId?.trim();
+    if (explicit) return explicit;
+
+    const domain = username.includes("@") ? username.split("@").pop()?.trim() : "";
+    return domain || "organizations";
   }
 }
