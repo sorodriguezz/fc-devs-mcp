@@ -1,6 +1,6 @@
 {
   "name": "fc-devs-mcp",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "A Model Context Protocol server for FC Devs — IRIS InterSystems & Azure DevOps integration.",
   "homepage": "https://github.com/sorodriguezz/fc-devs-mcp#readme",
   "main": "dist/index.js",

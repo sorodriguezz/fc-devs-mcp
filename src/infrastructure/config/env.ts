@@ -29,6 +29,12 @@ export const config = {
     password: env.get("MSSQL_PASSWORD").default("").asString(),
     encrypt: env.get("MSSQL_ENCRYPT").default("true").asBool(),
     trustServerCertificate: env.get("MSSQL_TRUST_SERVER_CERT").default("false").asBool(),
+    authType: env
+      .get("MSSQL_AUTH")
+      .default("sql")
+      .asEnum(["sql", "azure-ad-password"]),
+    azureClientId: env.get("MSSQL_AZURE_CLIENT_ID").default("").asString(),
+    azureTenantId: env.get("MSSQL_AZURE_TENANT_ID").default("").asString(),
   } as ISqlServerConfig & { enabled: boolean },
 
   ado: {
