@@ -1,8 +1,8 @@
-import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 
 import type { AzureDevOpsMcpClient } from "../../../infrastructure/azure-devops/AzureDevOpsMcpClient.js";
+import { buildInputShape, normalizeArgs } from "../jsonSchemaToZod.js";
 
 export function registerAzureDevOpsTools(
   server: McpServer,
@@ -18,16 +18,26 @@ export function registerAzureDevOpsTools(
     const toolName = tool.name;
     const toolDescription = tool.description ?? `Azure DevOps: ${toolName}`;
 
+    // Reconstruimos el schema real de la tool upstream (en vez de un record
+    // genérico) para que el cliente reciba los tipos correctos y, sobre todo,
+    // para coercionar los parámetros tipo `array`/`object` que llegan
+    // serializados como string JSON. Sin esto, el MCP oficial rechaza la
+    // llamada con `expected array, received string`.
+    const inputShape = buildInputShape(tool.inputSchema);
+
     server.registerTool(
       toolName,
       {
         title: tool.title ?? toolName,
         description: `[Azure DevOps] ${toolDescription}`,
-        inputSchema: z.record(z.string(), z.unknown()),
+        inputSchema: inputShape,
       },
       async (args: Record<string, unknown>) => {
         try {
-          const result = await adoClient.callTool(toolName, args);
+          // Red de seguridad: aunque el schema ya coerciona, normalizamos de
+          // nuevo por si algún argumento array/object llegara aún como string.
+          const normalized = normalizeArgs(args ?? {}, tool.inputSchema);
+          const result = await adoClient.callTool(toolName, normalized);
           return {
             content: [
               {
