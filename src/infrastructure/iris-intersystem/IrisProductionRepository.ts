@@ -1,39 +1,42 @@
+import * as iris from "@intersystems/intersystems-iris-native";
+
 import type { IrisConnectionManager } from "./IrisConnectionManager.js";
 import type {
   IIrisProductionRepository,
-  LogEntry,
+  LogQuery,
   ProductionHost,
   ProductionInfo,
   ProductionOperationResult,
   ProductionStatus,
   QueueInfo,
 } from "../../core/interfaces/IIrisProductionRepository.js";
-import { PRODUCTION_STATUS_MAP } from "../../core/interfaces/IIrisProductionRepository.js";
+import { LOG_TYPES, PRODUCTION_STATUS_MAP } from "../../core/interfaces/IIrisProductionRepository.js";
+import type { OutputLimits, SqlTable } from "../../core/sql/SqlResult.js";
+import { resolveRowLimit } from "../../core/sql/sqlUtils.js";
+import { executeStatement, readColumns, readRows } from "./irisSql.js";
+
+const LOGS_HARD_LIMIT = 1000;
+
+function sqlLiteral(value: string): string {
+  return `'${value.replace(/'/g, "''")}'`;
+}
 
 export class IrisProductionRepository implements IIrisProductionRepository {
-  constructor(private readonly conn: IrisConnectionManager) {}
+  constructor(
+    private readonly conn: IrisConnectionManager,
+    private readonly limits: OutputLimits,
+  ) {}
 
   async getStatus(): Promise<ProductionStatus> {
     const instance = this.conn.getActiveInstance();
 
     try {
-      const RefClass = this.getIrisReference(instance);
-      const nameRef = new RefClass("");
-      const stateRef = new RefClass(0);
-
-      instance.classMethodValue("Ens.Director", "GetProductionStatus", nameRef, stateRef);
-
-      const productionName = this.resolveReference(nameRef);
-      const statusCode = Number(this.resolveReference(stateRef) ?? 0);
+      const { name: productionName, statusCode } = this.readProductionStatus(instance);
       const status = PRODUCTION_STATUS_MAP[statusCode] ?? "Unknown";
 
       console.error(`[IRIS:Production] Status: ${productionName || "(ninguna)"} → ${status}`);
 
-      return {
-        name: productionName || "",
-        status,
-        statusCode,
-      };
+      return { name: productionName, status, statusCode };
     } catch (err: any) {
       this.conn.invalidate();
       throw new Error(`Error al obtener estado de la production: ${err.message}`);
@@ -41,28 +44,12 @@ export class IrisProductionRepository implements IIrisProductionRepository {
   }
 
   async listProductions(): Promise<ProductionInfo[]> {
-    const instance = this.conn.getActiveInstance();
-
-    const query = "SELECT Name, Description FROM Ens_Config.Production ORDER BY Name";
-
     try {
-      const result = instance.classMethodObject("%SYSTEM.SQL", "Execute", query);
-      if (!result) return [];
-
-      const sqlCode = Number(result.get("%SQLCODE") ?? 0);
-      if (sqlCode < 0) {
-        const msg = String(result.get("%Message") ?? "");
-        throw new Error(`SQL Error [${sqlCode}]: ${msg}`);
-      }
-
-      const productions: ProductionInfo[] = [];
-      while (result.invokeBoolean("%Next")) {
-        productions.push({
-          name: result.invokeString("%Get", "Name") ?? "",
-          description: result.invokeString("%Get", "Description") ?? "",
-        });
-      }
-      return productions;
+      const rows = this.select("SELECT Name, Description FROM Ens_Config.Production ORDER BY Name");
+      return rows.map(([name, description]) => ({
+        name: String(name ?? ""),
+        description: String(description ?? ""),
+      }));
     } catch (err: any) {
       throw new Error(`Error al listar productions: ${err.message}`);
     }
@@ -105,11 +92,13 @@ export class IrisProductionRepository implements IIrisProductionRepository {
     }
   }
 
-  async stopProduction(_timeoutSeconds?: number): Promise<ProductionOperationResult> {
+  async stopProduction(timeoutSeconds?: number, force?: boolean): Promise<ProductionOperationResult> {
     const instance = this.conn.getActiveInstance();
 
     try {
-      const status = instance.classMethodValue("Ens.Director", "StopProduction");
+      // Ens.Director.StopProduction(pTimeout = 10, pForce = 0)
+      const args = timeoutSeconds !== undefined || force !== undefined ? [timeoutSeconds ?? 10, force ? 1 : 0] : [];
+      const status = instance.classMethodValue("Ens.Director", "StopProduction", ...args);
       return this.resolveStatus(instance, status, "Production detenida correctamente.");
     } catch (err: any) {
       this.conn.invalidate();
@@ -121,11 +110,7 @@ export class IrisProductionRepository implements IIrisProductionRepository {
     const instance = this.conn.getActiveInstance();
 
     try {
-      const RefClass = this.getIrisReference(instance);
-      const nameRef = new RefClass("");
-      const stateRef = new RefClass(0);
-      instance.classMethodValue("Ens.Director", "GetProductionStatus", nameRef, stateRef);
-      const productionName = this.resolveReference(nameRef);
+      const { name: productionName } = this.readProductionStatus(instance);
 
       if (!productionName) {
         return { success: false, message: "No hay ninguna production activa para reiniciar." };
@@ -146,105 +131,53 @@ export class IrisProductionRepository implements IIrisProductionRepository {
   async getHosts(productionName: string): Promise<ProductionHost[]> {
     if (!productionName?.trim()) throw new Error("El nombre de la production es requerido.");
 
-    const instance = this.conn.getActiveInstance();
-    const safeName = productionName.trim().replace(/'/g, "''");
-    const query = `
-      SELECT Name, ClassName, PoolSize, Enabled
-      FROM Ens_Config.Item
-      WHERE Production = '${safeName}'
-      ORDER BY ClassName, Name
-    `;
-
     try {
-      const result = instance.classMethodObject("%SYSTEM.SQL", "Execute", query);
-      if (!result) return [];
-
-      const sqlCode = Number(result.get("%SQLCODE") ?? 0);
-      if (sqlCode < 0) {
-        const msg = String(result.get("%Message") ?? "");
-        throw new Error(`SQL Error [${sqlCode}]: ${msg}`);
-      }
-
-      const hosts: ProductionHost[] = [];
-      while (result.invokeBoolean("%Next")) {
-        hosts.push({
-          name: result.invokeString("%Get", "Name") ?? "",
-          className: result.invokeString("%Get", "ClassName") ?? "",
-          poolSize: Number(result.invokeString("%Get", "PoolSize") ?? 0),
-          enabled: result.invokeString("%Get", "Enabled") === "1",
-        });
-      }
-      return hosts;
+      const rows = this.select(
+        `SELECT Name, ClassName, PoolSize, Enabled FROM Ens_Config.Item
+         WHERE Production = ${sqlLiteral(productionName.trim())}
+         ORDER BY ClassName, Name`,
+      );
+      return rows.map(([name, className, poolSize, enabled]) => ({
+        name: String(name ?? ""),
+        className: String(className ?? ""),
+        poolSize: Number(poolSize ?? 0),
+        enabled: String(enabled) === "1" || enabled === true,
+      }));
     } catch (err: any) {
       throw new Error(`Error al obtener hosts de la production: ${err.message}`);
     }
   }
 
   async getQueues(): Promise<QueueInfo[]> {
-    const instance = this.conn.getActiveInstance();
-
-    const query = `
-      SELECT Name, Count
-      FROM Ens_Queue.Contents
-      ORDER BY Name
-    `;
-
     try {
-      const result = instance.classMethodObject("%SYSTEM.SQL", "Execute", query);
-      if (!result) return [];
-
-      const sqlCode = Number(result.get("%SQLCODE") ?? 0);
-      if (sqlCode < 0) {
-        const msg = String(result.get("%Message") ?? "");
-        throw new Error(`SQL Error [${sqlCode}]: ${msg}`);
-      }
-
-      const queues: QueueInfo[] = [];
-      while (result.invokeBoolean("%Next")) {
-        queues.push({
-          name: result.invokeString("%Get", "Name") ?? "",
-          count: Number(result.invokeString("%Get", "Count") ?? 0),
-        });
-      }
-      return queues;
+      const rows = this.select("SELECT Name, Count FROM Ens_Queue.Contents ORDER BY Name");
+      return rows.map(([name, count]) => ({ name: String(name ?? ""), count: Number(count ?? 0) }));
     } catch (err: any) {
       throw new Error(`Error al obtener colas de la production: ${err.message}`);
     }
   }
 
-  async getLogs(maxRows = 100): Promise<LogEntry[]> {
-    const instance = this.conn.getActiveInstance();
+  async getLogs(query: LogQuery = {}): Promise<SqlTable> {
+    const limit = Math.min(resolveRowLimit(query.maxRows, this.limits.defaultMaxRows), LOGS_HARD_LIMIT);
 
-    const safeMax = Math.max(1, Math.min(maxRows, 1000));
-    const query = `
-      SELECT TOP ${safeMax} ID, SessionId, Job, Type, ConfigName, Text, TimeLogged
-      FROM Ens_Util.Log
-      ORDER BY ID DESC
-    `;
+    const filters: string[] = [];
+    if (query.type) filters.push(`Type = ${LOG_TYPES.indexOf(query.type) + 1}`);
+    if (query.configName?.trim()) filters.push(`ConfigName = ${sqlLiteral(query.configName.trim())}`);
 
     try {
-      const result = instance.classMethodObject("%SYSTEM.SQL", "Execute", query);
-      if (!result) return [];
-
-      const sqlCode = Number(result.get("%SQLCODE") ?? 0);
-      if (sqlCode < 0) {
-        const msg = String(result.get("%Message") ?? "");
-        throw new Error(`SQL Error [${sqlCode}]: ${msg}`);
-      }
-
-      const logs: LogEntry[] = [];
-      while (result.invokeBoolean("%Next")) {
-        logs.push({
-          id: result.invokeString("%Get", "ID") ?? "",
-          sessionId: result.invokeString("%Get", "SessionId") ?? "",
-          job: result.invokeString("%Get", "Job") ?? "",
-          type: result.invokeString("%Get", "Type") ?? "",
-          configName: result.invokeString("%Get", "ConfigName") ?? "",
-          text: result.invokeString("%Get", "Text") ?? "",
-          timeLogged: result.invokeString("%Get", "TimeLogged") ?? "",
-        });
-      }
-      return logs;
+      const table = this.selectTable(
+        `SELECT TOP ${limit} ID, TimeLogged, Type, ConfigName, SessionId, Job, Text
+         FROM Ens_Util.Log
+         ${filters.length ? `WHERE ${filters.join(" AND ")}` : ""}
+         ORDER BY ID DESC`,
+        limit,
+      );
+      // Type se guarda como entero (1..6); la etiqueta es más legible y cuesta lo mismo.
+      const typeIdx = table.columns.indexOf("Type");
+      const rows = table.rows.map((row) =>
+        row.map((value, i) => (i === typeIdx ? (LOG_TYPES[Number(value) - 1] ?? value) : value)),
+      );
+      return { ...table, rows };
     } catch (err: any) {
       throw new Error(`Error al obtener logs de la production: ${err.message}`);
     }
@@ -285,6 +218,33 @@ export class IrisProductionRepository implements IIrisProductionRepository {
     }
   }
 
+  private selectTable(query: string, limit: number): SqlTable {
+    const result = executeStatement(this.conn.getActiveInstance(), query);
+    const columns = readColumns(result);
+    const { rows, truncated } = readRows(result, columns, limit, this.limits.maxCellChars);
+    return { columns, rows, rowCount: rows.length, ...(truncated ? { truncated: true as const } : {}) };
+  }
+
+  private select(query: string): ReadonlyArray<readonly unknown[]> {
+    return this.selectTable(query, Number.MAX_SAFE_INTEGER).rows;
+  }
+
+  /**
+   * GetProductionStatus devuelve nombre y estado por referencia (ByRef), por
+   * lo que hacen falta IRISReference reales del driver.
+   */
+  private readProductionStatus(instance: any): { name: string; statusCode: number } {
+    const nameRef = new iris.IRISReference("");
+    const stateRef = new iris.IRISReference(0);
+    instance.classMethodValue("Ens.Director", "GetProductionStatus", nameRef, stateRef);
+
+    const name = nameRef.getValue();
+    return {
+      name: name != null ? String(name) : "",
+      statusCode: Number(stateRef.getValue() ?? 0),
+    };
+  }
+
   private resolveStatus(
     instance: any,
     status: unknown,
@@ -305,28 +265,6 @@ export class IrisProductionRepository implements IIrisProductionRepository {
       return { success: false, message: errorText };
     } catch {
       return { success: true, message: successMessage };
-    }
-  }
-
-  private getIrisReference(instance: any): new (v: unknown) => { getValue(): unknown } {
-    try {
-      const irisModule = require("@intersystems/intersystems-iris-native");
-      if (irisModule?.IRISReference) return irisModule.IRISReference;
-    } catch {}
-
-    return class {
-      private _val: unknown;
-      constructor(v: unknown) { this._val = v; }
-      getValue(): unknown { return this._val; }
-    };
-  }
-
-  private resolveReference(ref: { getValue(): unknown }): string {
-    try {
-      const val = ref.getValue();
-      return val != null ? String(val) : "";
-    } catch {
-      return "";
     }
   }
 }

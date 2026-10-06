@@ -9,10 +9,12 @@ import {
   startProductionSchema,
   stopProductionSchema,
 } from "../schemas/iris-production.schema.js";
+import { toolHandler } from "../../shared/toolResponse.js";
 
-function toText(data: unknown): string {
-  return JSON.stringify(data, null, 2);
-}
+const NO_ARGS = z.object({});
+const READ_ONLY = { readOnlyHint: true, openWorldHint: false } as const;
+const MUTATING = { readOnlyHint: false, destructiveHint: false, openWorldHint: false } as const;
+const DISRUPTIVE = { readOnlyHint: false, destructiveHint: true, openWorldHint: false } as const;
 
 export function registerIrisProductionTools(
   server: McpServer,
@@ -23,92 +25,55 @@ export function registerIrisProductionTools(
     {
       title: "Estado de la Production activa",
       description:
-        "Retorna el nombre y estado de la Production de InterSystems IRIS actualmente en ejecución. " +
-        "Estados posibles: Running, Stopped, Suspended, Troubled, Unknown.",
-      inputSchema: z.object({}),
+        "Nombre y estado de la Production activa de IRIS (Running, Stopped, Suspended, Troubled, Unknown).",
+      inputSchema: NO_ARGS,
+      annotations: READ_ONLY,
     },
-    async () => {
-      try {
-        const result = await useCase.getStatus();
-        return { content: [{ type: "text" as const, text: toText(result) }] };
-      } catch (err: any) {
-        return { isError: true, content: [{ type: "text" as const, text: `Error: ${err.message}` }] };
-      }
-    },
+    toolHandler(() => useCase.getStatus()),
   );
 
   server.registerTool(
     "iris_production_list",
     {
       title: "Listar Productions",
-      description:
-        "Lista todas las Productions configuradas en el namespace actual de IRIS, " +
-        "con nombre y descripción.",
-      inputSchema: z.object({}),
+      description: "Lista las Productions del namespace de IRIS con su descripción.",
+      inputSchema: NO_ARGS,
+      annotations: READ_ONLY,
     },
-    async () => {
-      try {
-        const result = await useCase.listProductions();
-        return { content: [{ type: "text" as const, text: toText(result) }] };
-      } catch (err: any) {
-        return { isError: true, content: [{ type: "text" as const, text: `Error: ${err.message}` }] };
-      }
-    },
+    toolHandler(() => useCase.listProductions()),
   );
 
   server.registerTool(
     "iris_production_create",
     {
       title: "Crear Production",
-      description:
-        "Crea una nueva Production en IRIS con el nombre especificado y una descripción opcional. " +
-        "Falla si ya existe una Production con el mismo nombre.",
+      description: "Crea una Production nueva en IRIS. Falla si el nombre ya existe.",
       inputSchema: createProductionSchema,
+      annotations: MUTATING,
     },
-    async (args) => {
-      try {
-        const result = await useCase.createProduction(args.name, args.description);
-        return { content: [{ type: "text" as const, text: toText(result) }] };
-      } catch (err: any) {
-        return { isError: true, content: [{ type: "text" as const, text: `Error: ${err.message}` }] };
-      }
-    },
+    toolHandler((args) => useCase.createProduction(args.name, args.description)),
   );
 
   server.registerTool(
     "iris_production_start",
     {
       title: "Iniciar Production",
-      description: "Inicia una Production de IRIS especificada por nombre.",
+      description: "Inicia una Production de IRIS por nombre.",
       inputSchema: startProductionSchema,
+      annotations: MUTATING,
     },
-    async (args) => {
-      try {
-        const result = await useCase.startProduction(args.name);
-        return { content: [{ type: "text" as const, text: toText(result) }] };
-      } catch (err: any) {
-        return { isError: true, content: [{ type: "text" as const, text: `Error: ${err.message}` }] };
-      }
-    },
+    toolHandler((args) => useCase.startProduction(args.name)),
   );
 
   server.registerTool(
     "iris_production_stop",
     {
       title: "Detener Production",
-      description:
-        "Detiene la Production actualmente activa en IRIS. " +
-        "Se puede especificar el timeout en segundos antes de forzar el stop.",
+      description: "Detiene la Production activa de IRIS.",
       inputSchema: stopProductionSchema,
+      annotations: DISRUPTIVE,
     },
-    async () => {
-      try {
-        const result = await useCase.stopProduction();
-        return { content: [{ type: "text" as const, text: toText(result) }] };
-      } catch (err: any) {
-        return { isError: true, content: [{ type: "text" as const, text: `Error: ${err.message}` }] };
-      }
-    },
+    toolHandler((args) => useCase.stopProduction(args.timeout, args.force)),
   );
 
   server.registerTool(
@@ -116,56 +81,33 @@ export function registerIrisProductionTools(
     {
       title: "Reiniciar Production",
       description:
-        "Reinicia la Production activa de IRIS con un ciclo completo de stop + start. " +
-        "Usar iris_production_update para recargar configuración sin detenerla.",
-      inputSchema: z.object({}),
+        "Reinicia (stop + start) la Production activa. Para solo recargar configuración usar interoperability_production_update.",
+      inputSchema: NO_ARGS,
+      annotations: DISRUPTIVE,
     },
-    async () => {
-      try {
-        const result = await useCase.restartProduction();
-        return { content: [{ type: "text" as const, text: toText(result) }] };
-      } catch (err: any) {
-        return { isError: true, content: [{ type: "text" as const, text: `Error: ${err.message}` }] };
-      }
-    },
+    toolHandler(() => useCase.restartProduction()),
   );
 
   server.registerTool(
     "iris_production_hosts",
     {
       title: "Hosts de una Production",
-      description:
-        "Lista todos los Business Services, Business Processes y Business Operations " +
-        "de una Production de IRIS, con su tipo, pool size y estado habilitado.",
+      description: "Lista los Business Services/Processes/Operations de una Production con clase, pool size y enabled.",
       inputSchema: getHostsSchema,
+      annotations: READ_ONLY,
     },
-    async (args) => {
-      try {
-        const result = await useCase.getHosts(args.productionName);
-        return { content: [{ type: "text" as const, text: toText(result) }] };
-      } catch (err: any) {
-        return { isError: true, content: [{ type: "text" as const, text: `Error: ${err.message}` }] };
-      }
-    },
+    toolHandler((args) => useCase.getHosts(args.productionName)),
   );
 
   server.registerTool(
     "interoperability_production_queues",
     {
       title: "Colas de mensajes de la Production",
-      description:
-        "Lista todas las colas de mensajes activas en la Production de IRIS con " +
-        "su nombre y cantidad de mensajes pendientes.",
-      inputSchema: z.object({}),
+      description: "Lista las colas de mensajes de la Production con su cantidad de mensajes pendientes.",
+      inputSchema: NO_ARGS,
+      annotations: READ_ONLY,
     },
-    async () => {
-      try {
-        const result = await useCase.getQueues();
-        return { content: [{ type: "text" as const, text: toText(result) }] };
-      } catch (err: any) {
-        return { isError: true, content: [{ type: "text" as const, text: `Error: ${err.message}` }] };
-      }
-    },
+    toolHandler(() => useCase.getQueues()),
   );
 
   server.registerTool(
@@ -173,76 +115,44 @@ export function registerIrisProductionTools(
     {
       title: "Logs del Event Log de IRIS",
       description:
-        "Retorna las últimas entradas del Event Log de la Production (Ens_Util.Log), " +
-        "ordenadas del más reciente al más antiguo. Soporta límite configurable.",
+        "Últimas entradas del Event Log (Ens_Util.Log), de la más reciente a la más antigua. " +
+        "Filtrar por type/configName ahorra tokens.",
       inputSchema: getLogsSchema,
+      annotations: READ_ONLY,
     },
-    async (args) => {
-      try {
-        const result = await useCase.getLogs(args.maxRows);
-        return { content: [{ type: "text" as const, text: toText(result) }] };
-      } catch (err: any) {
-        return { isError: true, content: [{ type: "text" as const, text: `Error: ${err.message}` }] };
-      }
-    },
+    toolHandler((args) => useCase.getLogs(args)),
   );
 
   server.registerTool(
     "interoperability_production_update",
     {
       title: "Actualizar configuración de la Production",
-      description:
-        "Aplica los cambios de configuración pendientes a la Production activa de IRIS " +
-        "sin necesidad de detenerla (hot reload). Equivalente a UpdateProduction en Ens.Director.",
-      inputSchema: z.object({}),
+      description: "Aplica en caliente los cambios de configuración pendientes de la Production activa (UpdateProduction).",
+      inputSchema: NO_ARGS,
+      annotations: MUTATING,
     },
-    async () => {
-      try {
-        const result = await useCase.updateProduction();
-        return { content: [{ type: "text" as const, text: toText(result) }] };
-      } catch (err: any) {
-        return { isError: true, content: [{ type: "text" as const, text: `Error: ${err.message}` }] };
-      }
-    },
+    toolHandler(() => useCase.updateProduction()),
   );
 
   server.registerTool(
     "interoperability_production_needsupdate",
     {
       title: "Verificar si la Production necesita actualización",
-      description:
-        "Verifica si la configuración de la Production activa de IRIS ha sido modificada " +
-        "y requiere un UpdateProduction para aplicar los cambios.",
-      inputSchema: z.object({}),
+      description: "Indica si la Production activa tiene cambios de configuración sin aplicar.",
+      inputSchema: NO_ARGS,
+      annotations: READ_ONLY,
     },
-    async () => {
-      try {
-        const needsUpdate = await useCase.productionNeedsUpdate();
-        return {
-          content: [{ type: "text" as const, text: toText({ needsUpdate }) }],
-        };
-      } catch (err: any) {
-        return { isError: true, content: [{ type: "text" as const, text: `Error: ${err.message}` }] };
-      }
-    },
+    toolHandler(async () => ({ needsUpdate: await useCase.productionNeedsUpdate() })),
   );
 
   server.registerTool(
     "interoperability_production_recover",
     {
       title: "Recuperar Production",
-      description:
-        "Ejecuta una recuperación de la Production de IRIS para restablecer su estado " +
-        "cuando se encuentra en un estado inconsistente o Troubled.",
-      inputSchema: z.object({}),
+      description: "Recupera la Production cuando quedó en estado inconsistente o Troubled.",
+      inputSchema: NO_ARGS,
+      annotations: DISRUPTIVE,
     },
-    async () => {
-      try {
-        const result = await useCase.recoverProduction();
-        return { content: [{ type: "text" as const, text: toText(result) }] };
-      } catch (err: any) {
-        return { isError: true, content: [{ type: "text" as const, text: `Error: ${err.message}` }] };
-      }
-    },
+    toolHandler(() => useCase.recoverProduction()),
   );
 }

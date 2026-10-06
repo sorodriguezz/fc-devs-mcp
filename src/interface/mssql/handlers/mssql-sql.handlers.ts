@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 import { mssqlInputSchema } from "../schemas/mssql-query.schema.js";
+import { toolHandler } from "../../shared/toolResponse.js";
 import type { ExecSqlServerUseCase } from "../../../core/use-cases/mssql/ExecSqlServerUseCase.js";
 
 export const registerSqlServerTools = (
@@ -12,21 +13,9 @@ export const registerSqlServerTools = (
     {
       title: "Consulta SQL a Microsoft SQL Server",
       description:
-        "Ejecuta una consulta SQL (SELECT, INSERT, UPDATE, DELETE, DDL) en la base de datos Microsoft SQL Server conectada.",
+        "Ejecuta T-SQL (SELECT, DML, DDL) en SQL Server. Los SELECT devuelven {columns, rows} con filas como arrays.",
       inputSchema: mssqlInputSchema,
     },
-    async (args) => {
-      try {
-        const results = await useCase.execute(args.query, args.maxRows);
-        return {
-          content: [{ type: "text", text: JSON.stringify(results, null, 2) }],
-        };
-      } catch (err: any) {
-        return {
-          isError: true,
-          content: [{ type: "text", text: `Error: ${err.message}` }],
-        };
-      }
-    },
+    toolHandler((args) => useCase.execute(args.query, args.maxRows)),
   );
 };

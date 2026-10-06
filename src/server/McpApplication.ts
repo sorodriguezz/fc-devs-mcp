@@ -1,7 +1,8 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 
-import { config } from "../infrastructure/config/env.js";
+import { config, IRIS_TOOLSETS } from "../infrastructure/config/env.js";
 
 // ── IRIS ─────────────────────────────────────────────────────────────────────
 import { IrisConnectionManager } from "../infrastructure/iris-intersystem/IrisConnectionManager.js";
@@ -39,67 +40,27 @@ export class McpApplication {
 
     this.validateEnabledIntegrations();
 
-    // ── IRIS ──────────────────────────────────────────────────────────────────
-    if (config.iris.enabled) {
-      const irisConn = new IrisConnectionManager(config.iris);
-      this.shutdown.register(irisConn);
+    // Las integraciones se inicializan en paralelo: el tiempo de arranque pasa
+    // a ser el de la más lenta y no la suma. Las asíncronas (proceso hijo de
+    // ADO, handshake TLS/Entra ID de MSSQL) se lanzan primero para que avancen
+    // mientras corre la conexión de IRIS, que es síncrona.
+    const adoReady = config.ado.enabled ? this.connectAzureDevOps() : undefined;
+    const mssqlReady = config.mssql.enabled ? this.connectSqlServer() : undefined;
+    const irisConn = config.iris.enabled ? this.connectIris() : undefined;
 
-      try {
-        irisConn.getActiveInstance();
-      } catch (err: any) {
-        console.error(`💥 [IRIS] No se pudo conectar a IRIS en arranque.`);
-        console.error(`   Host: ${config.iris.hostname}:${config.iris.port} / Namespace: ${config.iris.namespace}`);
-        console.error(`   Error: ${err.message}`);
-        process.exit(1);
-      }
+    const [ado, mssqlConn] = await Promise.all([adoReady, mssqlReady]);
 
-      const irisRepo = new IrisRepository(irisConn);
-      const irisProductionRepo = new IrisProductionRepository(irisConn);
-      const irisGlobalsRepo = new IrisGlobalsRepository(irisConn);
+    // El registro se hace en orden fijo para que tools/list sea estable.
+    if (irisConn) this.registerIris(server, irisConn);
 
-      registerIrisSQLTools(server, new ExecSQLUseCase(irisRepo));
-      registerIrisProductionTools(server, new ProductionUseCase(irisProductionRepo));
-      registerIrisGlobalsTools(server, new GlobalsUseCase(irisGlobalsRepo));
-
-      console.error(`🔗 [IRIS] Integración InterSystems IRIS activa.`);
-    }
-
-    // ── SQL SERVER ────────────────────────────────────────────────────────────
-    if (config.mssql.enabled) {
-      const mssqlConn = new SqlServerConnectionManager(config.mssql);
-      this.shutdown.register(mssqlConn);
-
-      try {
-        await mssqlConn.getPool();
-      } catch (err: any) {
-        console.error(`💥 [MSSQL] No se pudo conectar a SQL Server en arranque.`);
-        console.error(`   Host: ${config.mssql.hostname}:${config.mssql.port} / DB: ${config.mssql.database}`);
-        console.error(`   Error: ${err.message}`);
-        process.exit(1);
-      }
-
-      const mssqlRepo = new SqlServerRepository(mssqlConn);
+    if (mssqlConn) {
+      const mssqlRepo = new SqlServerRepository(mssqlConn, config.output);
       registerSqlServerTools(server, new ExecSqlServerUseCase(mssqlRepo));
-
       console.error(`🔗 [MSSQL] Integración SQL Server activa.`);
     }
 
-    // ── AZURE DEVOPS ──────────────────────────────────────────────────────────
-    if (config.ado.enabled) {
-      const adoClient = new AzureDevOpsMcpClient(config.ado);
-      this.shutdown.register(adoClient);
-
-      try {
-        const adoTools = await adoClient.connect();
-        registerAzureDevOpsTools(server, adoClient, adoTools);
-      } catch (err: any) {
-        console.error(`💥 [ADO] No se pudo conectar a Azure DevOps MCP.`);
-        console.error(`   Org: ${config.ado.orgUrl}`);
-        console.error(`   Error: ${err.message}`);
-        console.error(`   Verifica AZURE_DEVOPS_ORG_URL, AZURE_DEVOPS_PAT y que npx esté disponible.`);
-        process.exit(1);
-      }
-
+    if (ado) {
+      registerAzureDevOpsTools(server, ado.client, ado.tools, config.ado);
       console.error(`🔗 [ADO] Integración Azure DevOps activa.`);
     }
 
@@ -110,6 +71,70 @@ export class McpApplication {
     await server.connect(transport);
 
     console.error(`🚀 [MCP] Servidor "${config.server.name}" v${config.server.version} iniciado.`);
+  }
+
+  private connectIris(): IrisConnectionManager {
+    const irisConn = new IrisConnectionManager(config.iris);
+    this.shutdown.register(irisConn);
+
+    try {
+      irisConn.getActiveInstance();
+    } catch (err: any) {
+      console.error(`💥 [IRIS] No se pudo conectar a IRIS en arranque.`);
+      console.error(`   Host: ${config.iris.hostname}:${config.iris.port} / Namespace: ${config.iris.namespace}`);
+      console.error(`   Error: ${err.message}`);
+      process.exit(1);
+    }
+    return irisConn;
+  }
+
+  private registerIris(server: McpServer, irisConn: IrisConnectionManager): void {
+    const toolsets = new Set(config.iris.toolsets);
+
+    if (toolsets.has("sql")) {
+      registerIrisSQLTools(server, new ExecSQLUseCase(new IrisRepository(irisConn, config.output)));
+    }
+    if (toolsets.has("production")) {
+      registerIrisProductionTools(
+        server,
+        new ProductionUseCase(new IrisProductionRepository(irisConn, config.output)),
+      );
+    }
+    if (toolsets.has("globals")) {
+      registerIrisGlobalsTools(server, new GlobalsUseCase(new IrisGlobalsRepository(irisConn, config.output)));
+    }
+
+    console.error(`🔗 [IRIS] Integración InterSystems IRIS activa (toolsets: ${[...toolsets].join(", ")}).`);
+  }
+
+  private async connectSqlServer(): Promise<SqlServerConnectionManager> {
+    const mssqlConn = new SqlServerConnectionManager(config.mssql);
+    this.shutdown.register(mssqlConn);
+
+    try {
+      await mssqlConn.getPool();
+    } catch (err: any) {
+      console.error(`💥 [MSSQL] No se pudo conectar a SQL Server en arranque.`);
+      console.error(`   Host: ${config.mssql.hostname}:${config.mssql.port} / DB: ${config.mssql.database}`);
+      console.error(`   Error: ${err.message}`);
+      process.exit(1);
+    }
+    return mssqlConn;
+  }
+
+  private async connectAzureDevOps(): Promise<{ client: AzureDevOpsMcpClient; tools: Tool[] }> {
+    const client = new AzureDevOpsMcpClient(config.ado);
+    this.shutdown.register(client);
+
+    try {
+      return { client, tools: await client.connect() };
+    } catch (err: any) {
+      console.error(`💥 [ADO] No se pudo conectar a Azure DevOps MCP.`);
+      console.error(`   Org: ${config.ado.orgUrl}`);
+      console.error(`   Error: ${err.message}`);
+      console.error(`   Verifica AZURE_DEVOPS_ORG_URL, AZURE_DEVOPS_PAT, ADO_DOMAINS y que el paquete @azure-devops/mcp (o npx) esté disponible.`);
+      process.exit(1);
+    }
   }
 
   /**
@@ -132,6 +157,12 @@ export class McpApplication {
       );
       if (missing.length) {
         console.error(`💥 [IRIS] Variables requeridas faltantes: ${missing.map((k) => `IRIS_${k.toUpperCase()}`).join(", ")}`);
+        process.exit(1);
+      }
+
+      const unknown = config.iris.toolsets.filter((t) => !(IRIS_TOOLSETS as readonly string[]).includes(t));
+      if (unknown.length) {
+        console.error(`💥 [IRIS] IRIS_TOOLSETS inválidos: ${unknown.join(", ")}. Valores válidos: ${IRIS_TOOLSETS.join(", ")}.`);
         process.exit(1);
       }
     }

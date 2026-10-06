@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 import { inputSchema } from "../schemas/iris-query.schema.js";
+import { toolHandler } from "../../shared/toolResponse.js";
 
 import type { ExecSQLUseCase } from "../../../core/use-cases/iris-intersystem/sql/ExecSQLUseCase.js";
 
@@ -13,27 +14,9 @@ export const registerIrisSQLTools = (
     {
       title: "Consulta SQL a InterSystems IRIS",
       description:
-        "Ejecuta una consulta SQL en la base de datos InterSystems IRIS.",
+        "Ejecuta SQL en InterSystems IRIS. Los SELECT devuelven {columns, rows} con filas como arrays.",
       inputSchema,
     },
-    async (args) => {
-      try {
-        const results = await useCase.execute(args.query);
-        return {
-          content: [{ type: "text", text: JSON.stringify(results, null, 2) }],
-        };
-      } catch (err: any) {
-        return {
-          isError: true,
-          content: [{ type: "text", text: `Error: ${err.message}` }],
-        };
-      }
-    },
+    toolHandler((args) => useCase.execute(args.query, args.maxRows)),
   );
-
-  // server.registerTool("", {} as any, async (args) => {
-  //   return {
-  //     content: [{ type: "text", text: ''}],
-  //   };
-  // });
 };

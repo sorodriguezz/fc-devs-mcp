@@ -1,4 +1,7 @@
-import type { IIrisProductionRepository } from "../../../interfaces/IIrisProductionRepository.js";
+import type {
+  IIrisProductionRepository,
+  LogQuery,
+} from "../../../interfaces/IIrisProductionRepository.js";
 
 export class ProductionUseCase {
   constructor(private readonly productionRepo: IIrisProductionRepository) {}
@@ -19,8 +22,8 @@ export class ProductionUseCase {
     return this.productionRepo.startProduction(name);
   }
 
-  async stopProduction() {
-    return this.productionRepo.stopProduction();
+  async stopProduction(timeoutSeconds?: number, force?: boolean) {
+    return this.productionRepo.stopProduction(timeoutSeconds, force);
   }
 
   async restartProduction() {
@@ -35,8 +38,8 @@ export class ProductionUseCase {
     return this.productionRepo.getQueues();
   }
 
-  async getLogs(maxRows?: number) {
-    return this.productionRepo.getLogs(maxRows);
+  async getLogs(query?: LogQuery) {
+    return this.productionRepo.getLogs(query);
   }
 
   async updateProduction() {

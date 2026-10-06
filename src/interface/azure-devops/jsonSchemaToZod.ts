@@ -5,6 +5,7 @@ import { z } from "zod";
  */
 interface JsonSchema {
   type?: string | string[];
+  description?: string;
   properties?: Record<string, JsonSchema>;
   items?: JsonSchema | JsonSchema[];
   required?: string[];
@@ -13,6 +14,16 @@ interface JsonSchema {
   oneOf?: JsonSchema[];
   allOf?: JsonSchema[];
   [key: string]: unknown;
+}
+
+export interface SchemaConversionOptions {
+  /**
+   * Largo máximo de la descripción de cada parámetro: 0 las omite, -1 las deja
+   * completas. Las descripciones de parámetros son ~45% del tamaño de las
+   * definiciones del MCP oficial, pero sin ellas el modelo no sabe qué
+   * parámetro aplica a cada `action` y falla llamadas (que también cuestan).
+   */
+  readonly paramDescMaxChars: number;
 }
 
 /**
@@ -53,16 +64,47 @@ function pickType(schema: JsonSchema): string | undefined {
   return Array.isArray(schema.type) ? schema.type[0] : schema.type;
 }
 
+function shortenDescription(text: string | undefined, maxChars: number): string | undefined {
+  const clean = text?.replace(/\s+/g, " ").trim();
+  if (!clean || maxChars === 0) return undefined;
+  if (maxChars < 0 || clean.length <= maxChars) return clean;
+  const cut = clean.slice(0, maxChars);
+  const lastSpace = cut.lastIndexOf(" ");
+  return `${lastSpace > maxChars * 0.6 ? cut.slice(0, lastSpace) : cut}…`;
+}
+
+function isStringEnum(values: unknown[] | undefined): values is [string, ...string[]] {
+  return Array.isArray(values) && values.length > 0 && values.every((v) => typeof v === "string");
+}
+
 /**
- * Convierte un nodo JSON Schema en un tipo Zod. Es deliberadamente *permisivo*:
- * ante cualquier construcción no reconocida cae a `z.unknown()` (acepta todo),
- * de modo que el proxy nunca sea MÁS estricto que el MCP oficial. La validación
- * fuerte la sigue haciendo Azure DevOps; aquí solo añadimos tipos + coerción.
+ * Convierte un nodo JSON Schema en un tipo Zod. Es deliberadamente *permisivo*
+ * en validación (objetos abiertos, uniones como `any`) para que el proxy nunca
+ * sea MÁS estricto que el MCP oficial, pero conserva lo que el modelo necesita
+ * para llamar bien a la tool: enums, estructura de objetos anidados y
+ * descripciones (recortadas).
  */
-export function schemaToZodType(schema: JsonSchema | undefined): z.ZodTypeAny {
+export function schemaToZodType(
+  schema: JsonSchema | undefined,
+  options: SchemaConversionOptions,
+): z.ZodTypeAny {
   if (!schema || typeof schema !== "object") return z.unknown();
 
-  // Uniones / enums: mantener laxo pero válido.
+  const type = buildType(schema, options);
+  // Las tools oficiales son "por acción": la descripción del enum `action`
+  // es la única documentación de qué hace cada opción y qué parámetros pide,
+  // así que las descripciones de enums se conservan siempre.
+  const maxChars = Array.isArray(schema.enum) ? -1 : options.paramDescMaxChars;
+  const description = shortenDescription(schema.description, maxChars);
+  return description ? type.describe(description) : type;
+}
+
+function buildType(schema: JsonSchema, options: SchemaConversionOptions): z.ZodTypeAny {
+  if (isStringEnum(schema.enum)) {
+    return z.enum(schema.enum);
+  }
+
+  // Uniones / enums no-string: mantener laxo pero válido.
   if (Array.isArray(schema.anyOf) || Array.isArray(schema.oneOf) || Array.isArray(schema.enum)) {
     return z.preprocess(parseIfJsonString, z.any());
   }
@@ -80,11 +122,13 @@ export function schemaToZodType(schema: JsonSchema | undefined): z.ZodTypeAny {
 
     case "array": {
       const itemSchema = Array.isArray(schema.items) ? schema.items[0] : schema.items;
-      return z.preprocess(parseIfJsonString, z.array(schemaToZodType(itemSchema)));
+      return z.preprocess(parseIfJsonString, z.array(schemaToZodType(itemSchema, options)));
     }
 
     case "object":
-      // Objeto laxo: acepta cualquier registro tras parsear strings JSON.
+      if (schema.properties && Object.keys(schema.properties).length > 0) {
+        return z.preprocess(parseIfJsonString, z.looseObject(buildShape(schema, options)));
+      }
       return z.preprocess(parseIfJsonString, z.record(z.string(), z.unknown()));
 
     default:
@@ -93,29 +137,29 @@ export function schemaToZodType(schema: JsonSchema | undefined): z.ZodTypeAny {
   }
 }
 
+function buildShape(schema: JsonSchema, options: SchemaConversionOptions): z.ZodRawShape {
+  const required = new Set(Array.isArray(schema.required) ? schema.required : []);
+  const shape: Record<string, z.ZodTypeAny> = {};
+
+  for (const [key, propSchema] of Object.entries(schema.properties ?? {})) {
+    const zodType = schemaToZodType(propSchema, options);
+    shape[key] = required.has(key) ? zodType : zodType.optional();
+  }
+
+  return shape;
+}
+
 /**
  * Construye un ZodRawShape (objeto de tipos Zod por propiedad) a partir del
  * `inputSchema` JSON de una tool upstream. Las propiedades no requeridas quedan
  * `.optional()`. Si el schema no es un objeto con `properties`, devuelve `{}`.
  */
-export function buildInputShape(inputSchema: unknown): z.ZodRawShape {
+export function buildInputShape(inputSchema: unknown, options: SchemaConversionOptions): z.ZodRawShape {
   const schema = inputSchema as JsonSchema | undefined;
   if (!schema || pickType(schema) !== "object" || !schema.properties) {
     return {};
   }
-
-  const required = new Set(Array.isArray(schema.required) ? schema.required : []);
-  const shape: Record<string, z.ZodTypeAny> = {};
-
-  for (const [key, propSchema] of Object.entries(schema.properties)) {
-    let zodType = schemaToZodType(propSchema);
-    if (!required.has(key)) {
-      zodType = zodType.optional();
-    }
-    shape[key] = zodType;
-  }
-
-  return shape;
+  return buildShape(schema, options);
 }
 
 /**

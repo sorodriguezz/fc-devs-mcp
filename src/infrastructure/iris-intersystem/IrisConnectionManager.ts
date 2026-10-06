@@ -10,30 +10,48 @@ export class IrisConnectionManager implements Closeable {
   constructor(private readonly config: IIrisConfig) {}
 
   getActiveInstance(): any {
-    if (!this.irisNative || !this.connection) {
+    // Si el driver ya sabe que el socket se cerró (reinicio de IRIS, timeout),
+    // reconectar ahora evita que la próxima tool falle de forma garantizada.
+    if (!this.irisNative || !this.connection || this.isClosed()) {
       this.connect();
     }
     return this.irisNative;
   }
 
   invalidate(): void {
-    this.irisNative = null;
-    this.connection = null;
+    this.release();
     console.error("⚠️  [IRIS] Conexión invalidada. Se reconectará en el próximo intento.");
   }
 
   async close(): Promise<void> {
     if (this.connection) {
-      try {
-        this.connection.close();
-        console.error("🔌 [IRIS] Conexión cerrada correctamente.");
-      } finally {
-        this.invalidate();
-      }
+      this.release();
+      console.error("🔌 [IRIS] Conexión cerrada correctamente.");
+    }
+  }
+
+  /** Cierra el socket actual (si lo hay) para no dejarlo colgado al reconectar. */
+  private release(): void {
+    const previous = this.connection;
+    this.irisNative = null;
+    this.connection = null;
+    try {
+      if (previous && !previous.isClosed?.()) previous.close();
+    } catch {
+      /* ya estaba cerrada o rota */
+    }
+  }
+
+  private isClosed(): boolean {
+    try {
+      return this.connection?.isClosed?.() === true;
+    } catch {
+      return true;
     }
   }
 
   private connect(): void {
+    this.release();
     console.error("🔌 [IRIS] Iniciando conexión...");
     this.connection = iris.createConnection({
       host: this.config.hostname,

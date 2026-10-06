@@ -25,6 +25,7 @@ Cada integración es completamente opcional y se activa mediante un flag de ento
 | `IRIS_NAMESPACE` | ✅                   | —       | Namespace IRIS (ej. `USER`, `APP`)       |
 | `IRIS_USERNAME`  | ✅                   | —       | Usuario IRIS                             |
 | `IRIS_PASSWORD`  | ✅                   | —       | Contraseña IRIS                          |
+| `IRIS_TOOLSETS`  | ❌                   | `sql,production,globals` | Grupos de tools a exponer. Quitar los que no uses ahorra contexto |
 
 ### Microsoft SQL Server
 
@@ -49,6 +50,26 @@ Cada integración es completamente opcional y se activa mediante un flag de ento
 | `ADO_ENABLED`          | —                    | `false` | Habilitar integración Azure DevOps                        |
 | `AZURE_DEVOPS_ORG_URL` | ✅                   | —       | URL de la organización (ej. `https://dev.azure.com/mi-org`) |
 | `AZURE_DEVOPS_PAT`     | ✅                   | —       | Personal Access Token de Azure DevOps                     |
+| `ADO_DOMAINS`          | ❌                   | todos   | Dominios del MCP oficial a cargar: `core`, `work`, `work-items`, `repositories`, `pipelines`, `wiki`, `test-plans`, `search`, `advanced-security` (separados por coma o espacio) |
+| `ADO_TOOLS`            | ❌                   | todas   | Allowlist de tools por nombre; admite comodín final (ej. `wit_*,repo_pull_request`) |
+| `ADO_PARAM_DESC_MAX_CHARS` | ❌               | `0`     | Largo máximo de las descripciones de parámetros (`0` = omitir, `-1` = completas). Las de parámetros enum (`action`) se conservan siempre |
+| `ADO_COMPACT_RESPONSES` | ❌                  | `true`  | Quita `_links`, URLs de API REST, avatares, descriptores y `null` de las respuestas |
+
+### Rendimiento y consumo de tokens
+
+Todo lo que devuelve una tool entra completo en el contexto del modelo, y las definiciones de las tools se envían en **cada** turno. Estas variables controlan ambos costos:
+
+| Variable                 | Default | Descripción |
+| ------------------------ | ------- | ----------- |
+| `SQL_MAX_ROWS`           | `100`   | Filas devueltas por un SELECT cuando no se pasa `maxRows` (aplica a `iris_query`, `mssql_query` y logs). Si hay más, la respuesta incluye `"truncated": true` |
+| `MCP_MAX_CELL_CHARS`     | `500`   | Largo máximo de cada valor string (campos de texto, mensajes HL7, JSON…). `0` = sin límite |
+| `MCP_MAX_RESPONSE_CHARS` | `40000` | Tope de caracteres de cualquier respuesta (≈ 11k tokens). `0` = sin límite |
+
+Recomendaciones:
+
+- **Azure DevOps es lo más caro en contexto**: con todos los dominios son 40 tools (~10k tokens por turno). Limitar con `ADO_DOMAINS` a lo que realmente usas (ej. `core work-items repositories`) lo reduce a la mitad o menos.
+- Los SELECT se devuelven en formato columnar (`{"columns":[…],"rows":[[…],[…]]}`), que no repite los nombres de columna en cada fila.
+- Para arrancar más rápido, evita `--prefer-online` en `npx` (consulta el registry en cada arranque) o instala el paquete globalmente. `@azure-devops/mcp` se instala como dependencia opcional y se ejecuta directo con `node`, sin un segundo `npx`.
 
 ---
 
@@ -286,9 +307,9 @@ Para deshacer el link: `npm unlink -g fc-devs-mcp`
 
 | Tool                 | Integración    | Descripción                                               |
 | -------------------- | -------------- | --------------------------------------------------------- |
-| `iris_query`         | IRIS           | Ejecuta SQL en InterSystems IRIS                          |
-| `iris_production_*`  | IRIS           | Gestión de producciones de interoperabilidad              |
-| `iris_globals_*`     | IRIS           | Lectura/escritura de globals IRIS                         |
+| `iris_query`         | IRIS (`sql`)   | Ejecuta SQL en InterSystems IRIS                          |
+| `iris_production_*`, `interoperability_production_*` | IRIS (`production`) | Gestión de producciones de interoperabilidad |
+| `iris_global_*`      | IRIS (`globals`) | Lectura/escritura de globals IRIS                       |
 | `mssql_query`        | SQL Server     | Ejecuta SQL en Microsoft SQL Server (SELECT, DML y DDL)   |
 | *(dinámicos)*        | Azure DevOps   | Tools descubiertos dinámicamente desde el MCP oficial ADO |
 

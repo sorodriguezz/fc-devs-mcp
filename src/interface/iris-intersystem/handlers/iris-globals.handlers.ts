@@ -9,51 +9,34 @@ import {
   globalListSchema,
   globalSetSchema,
 } from "../schemas/iris-globals.schema.js";
+import { toolHandler } from "../../shared/toolResponse.js";
 
-function toText(data: unknown): string {
-  return JSON.stringify(data, null, 2);
-}
+const READ_ONLY = { readOnlyHint: true, openWorldHint: false } as const;
 
 export function registerIrisGlobalsTools(server: McpServer, useCase: GlobalsUseCase): void {
   server.registerTool(
     "iris_global_get",
     {
       title: "Leer nodo de Global",
-      description:
-        "Retorna el valor almacenado en un nodo específico del global array de IRIS. " +
-        "Retorna null si el nodo no tiene valor. Los subscripts definen la ruta al nodo.",
+      description: "Devuelve el valor de un nodo de un global de IRIS (null si no tiene valor).",
       inputSchema: globalGetSchema,
+      annotations: READ_ONLY,
     },
-    async (args) => {
-      try {
-        const value = await useCase.get(args.globalName, args.subscripts);
-        return { content: [{ type: "text" as const, text: toText({ value }) }] };
-      } catch (err: any) {
-        return { isError: true, content: [{ type: "text" as const, text: `Error: ${err.message}` }] };
-      }
-    },
+    toolHandler(async (args) => ({ value: await useCase.get(args.globalName, args.subscripts) })),
   );
 
   server.registerTool(
     "iris_global_set",
     {
       title: "Escribir nodo de Global",
-      description:
-        "Almacena un valor en un nodo del global array de IRIS. " +
-        "Si el nodo no existe, se crea. Si ya existe, su valor es reemplazado.",
+      description: "Guarda un valor en un nodo de un global de IRIS (lo crea o lo reemplaza).",
       inputSchema: globalSetSchema,
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
     },
-    async (args) => {
-      try {
-        await useCase.set(args.globalName, args.value, args.subscripts);
-        const address = buildAddress(args.globalName, args.subscripts);
-        return {
-          content: [{ type: "text" as const, text: toText({ success: true, message: `Valor almacenado en ^${address}.` }) }],
-        };
-      } catch (err: any) {
-        return { isError: true, content: [{ type: "text" as const, text: `Error: ${err.message}` }] };
-      }
-    },
+    toolHandler(async (args) => {
+      await useCase.set(args.globalName, args.value, args.subscripts);
+      return { success: true, node: `^${buildAddress(args.globalName, args.subscripts)}` };
+    }),
   );
 
   server.registerTool(
@@ -61,21 +44,14 @@ export function registerIrisGlobalsTools(server: McpServer, useCase: GlobalsUseC
     {
       title: "Eliminar nodo de Global",
       description:
-        "Elimina un nodo del global array de IRIS junto con todos sus subnodos. " +
-        "Si no se especifican subscripts, se elimina el global completo.",
+        "Elimina un nodo de un global de IRIS y todos sus subnodos. Sin subscripts elimina el global completo.",
       inputSchema: globalKillSchema,
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
     },
-    async (args) => {
-      try {
-        await useCase.kill(args.globalName, args.subscripts);
-        const address = buildAddress(args.globalName, args.subscripts);
-        return {
-          content: [{ type: "text" as const, text: toText({ success: true, message: `Nodo ^${address} y sus subnodos eliminados.` }) }],
-        };
-      } catch (err: any) {
-        return { isError: true, content: [{ type: "text" as const, text: `Error: ${err.message}` }] };
-      }
-    },
+    toolHandler(async (args) => {
+      await useCase.kill(args.globalName, args.subscripts);
+      return { success: true, killed: `^${buildAddress(args.globalName, args.subscripts)}` };
+    }),
   );
 
   server.registerTool(
@@ -83,60 +59,41 @@ export function registerIrisGlobalsTools(server: McpServer, useCase: GlobalsUseC
     {
       title: "Verificar existencia de nodo Global",
       description:
-        "Verifica si un nodo del global array de IRIS existe y qué contiene. " +
-        "state: 0=no existe, 1=tiene valor, 10=tiene hijos, 11=tiene valor e hijos.",
+        "Indica si un nodo de un global existe. state: 0=no existe, 1=valor, 10=hijos, 11=valor e hijos.",
       inputSchema: globalExistsSchema,
+      annotations: READ_ONLY,
     },
-    async (args) => {
-      try {
-        const result = await useCase.exists(args.globalName, args.subscripts);
-        return { content: [{ type: "text" as const, text: toText(result) }] };
-      } catch (err: any) {
-        return { isError: true, content: [{ type: "text" as const, text: `Error: ${err.message}` }] };
-      }
-    },
+    toolHandler((args) => useCase.exists(args.globalName, args.subscripts)),
   );
 
   server.registerTool(
     "iris_global_list",
     {
       title: "Listar nodos hijos de un Global",
-      description:
-        "Itera y retorna los nodos hijo directos de un nodo del global array de IRIS. " +
-        "Soporta orden inverso, punto de inicio y límite de resultados.",
+      description: "Lista los hijos directos de un nodo de un global. Soporta orden inverso, inicio y límite.",
       inputSchema: globalListSchema,
+      annotations: READ_ONLY,
     },
-    async (args) => {
-      try {
-        const nodes = await useCase.list(args.globalName, args.subscripts, {
-          reversed: args.reversed,
-          startFrom: args.startFrom,
-          maxItems: args.maxItems,
-        });
-        return { content: [{ type: "text" as const, text: toText(nodes) }] };
-      } catch (err: any) {
-        return { isError: true, content: [{ type: "text" as const, text: `Error: ${err.message}` }] };
-      }
-    },
+    toolHandler((args) =>
+      useCase.list(args.globalName, args.subscripts, {
+        reversed: args.reversed,
+        startFrom: args.startFrom,
+        maxItems: args.maxItems,
+      }),
+    ),
   );
 
   server.registerTool(
     "iris_global_increment",
     {
       title: "Incrementar contador en Global",
-      description:
-        "Incrementa o decrementa atómicamente el valor numérico de un nodo del global array. " +
-        "Si el nodo no existe, se inicializa en 0 antes de aplicar el delta.",
+      description: "Suma atómicamente delta (default 1) a un nodo numérico; si no existe parte de 0.",
       inputSchema: globalIncrementSchema,
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     },
-    async (args) => {
-      try {
-        const newValue = await useCase.increment(args.globalName, args.subscripts, args.delta);
-        return { content: [{ type: "text" as const, text: toText({ newValue }) }] };
-      } catch (err: any) {
-        return { isError: true, content: [{ type: "text" as const, text: `Error: ${err.message}` }] };
-      }
-    },
+    toolHandler(async (args) => ({
+      newValue: await useCase.increment(args.globalName, args.subscripts, args.delta),
+    })),
   );
 }
 

@@ -1,12 +1,45 @@
+import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import path from "node:path";
+
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 
 import type { Closeable } from "../../server/GracefulShutdown.js";
 
+const ADO_MCP_PACKAGE = "@azure-devops/mcp";
+
 export interface IAzureDevOpsConfig {
   readonly orgUrl: string;
   readonly pat: string;
+  /** Dominios del MCP oficial a cargar (`-d`). Vacío = todos. */
+  readonly domains: readonly string[];
+  /** Allowlist de tools por nombre (se aplica en el proxy). */
+  readonly tools: readonly string[];
+  readonly paramDescMaxChars: number;
+  readonly compactResponses: boolean;
+}
+
+/**
+ * Prefiere el paquete instalado localmente (optionalDependency) y lo ejecuta
+ * con el mismo `node`: evita que `npx` resuelva/consulte el registry en cada
+ * arranque (~2 s en caliente, >10 s la primera vez). Si no está instalado,
+ * cae a `npx` como antes.
+ */
+function resolveLaunchCommand(): { command: string; args: string[] } {
+  try {
+    const require = createRequire(import.meta.url);
+    const pkgJsonPath = require.resolve(`${ADO_MCP_PACKAGE}/package.json`);
+    const pkg = JSON.parse(readFileSync(pkgJsonPath, "utf8")) as { bin?: string | Record<string, string> };
+    const bin = typeof pkg.bin === "string" ? pkg.bin : Object.values(pkg.bin ?? {})[0];
+    if (bin) {
+      return { command: process.execPath, args: [path.join(path.dirname(pkgJsonPath), bin)] };
+    }
+  } catch {
+    /* no instalado localmente */
+  }
+  return { command: "npx", args: ["-y", ADO_MCP_PACKAGE] };
 }
 
 export class AzureDevOpsMcpClient implements Closeable {
@@ -23,11 +56,18 @@ export class AzureDevOpsMcpClient implements Closeable {
 
   async connect(): Promise<Tool[]> {
     const orgName = this.extractOrgName(this.config.orgUrl);
-    console.error(`🔗 [ADO] Iniciando cliente Azure DevOps MCP para org: ${orgName}`);
+    const launch = resolveLaunchCommand();
+    const domainArgs = this.config.domains.length ? ["-d", ...this.config.domains] : [];
+
+    console.error(
+      `🔗 [ADO] Iniciando cliente Azure DevOps MCP para org: ${orgName}` +
+        ` (${launch.command === "npx" ? "npx" : "paquete local"}` +
+        `${domainArgs.length ? `, dominios: ${this.config.domains.join(" ")}` : ""})`,
+    );
 
     this.transport = new StdioClientTransport({
-      command: "npx",
-      args: ["-y", "@azure-devops/mcp", orgName, "--authentication", "envvar"],
+      command: launch.command,
+      args: [...launch.args, orgName, "--authentication", "envvar", ...domainArgs],
       env: {
         ...process.env as Record<string, string>,
         AZURE_DEVOPS_ORG_URL: this.config.orgUrl,
@@ -60,8 +100,7 @@ export class AzureDevOpsMcpClient implements Closeable {
       throw new Error("El cliente de Azure DevOps MCP no está conectado.");
     }
 
-    const result = await this.client.callTool({ name: toolName, arguments: args });
-    return result;
+    return this.client.callTool({ name: toolName, arguments: args });
   }
 
   getDiscoveredTools(): readonly Tool[] {

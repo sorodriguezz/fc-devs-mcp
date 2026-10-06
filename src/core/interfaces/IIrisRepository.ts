@@ -1,28 +1,12 @@
-export type SqlMutationType =
-  | "INSERT"
-  | "UPDATE"
-  | "DELETE"
-  | "DROP"
-  | "TRUNCATE"
-  | "CREATE"
-  | "ALTER"
-  | "DML";
+import type { SqlExecutionResult } from "../sql/SqlResult.js";
 
-export interface SqlSelectResult {
-  readonly operation: "SELECT";
-  readonly columns: readonly string[];
-  readonly rows: ReadonlyArray<Record<string, unknown>>;
-  readonly rowCount: number;
-}
-
-export interface SqlMutationResult {
-  readonly operation: SqlMutationType;
-  readonly success: true;
-  readonly rowsAffected: number;
-  readonly message: string;
-}
-
-export type SqlExecutionResult = SqlSelectResult | SqlMutationResult;
+export type {
+  SqlExecutionResult,
+  SqlMutationResult,
+  SqlMutationType,
+  SqlSelectResult,
+  SqlTable,
+} from "../sql/SqlResult.js";
 
 export interface IIrisRepository {
   executeSql(query: string, maxRows?: number): Promise<SqlExecutionResult>;

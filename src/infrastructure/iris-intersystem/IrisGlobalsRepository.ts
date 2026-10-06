@@ -5,9 +5,14 @@ import type {
   GlobalNodeState,
   IIrisGlobalsRepository,
 } from "../../core/interfaces/IIrisGlobalsRepository.js";
+import type { OutputLimits } from "../../core/sql/SqlResult.js";
+import { normalizeCell } from "../../core/sql/sqlUtils.js";
 
 export class IrisGlobalsRepository implements IIrisGlobalsRepository {
-  constructor(private readonly conn: IrisConnectionManager) {}
+  constructor(
+    private readonly conn: IrisConnectionManager,
+    private readonly limits: OutputLimits,
+  ) {}
 
   async get(globalName: string, subscripts: string[] = []): Promise<string | number | null> {
     this.validateGlobalName(globalName);
@@ -82,7 +87,10 @@ export class IrisGlobalsRepository implements IIrisGlobalsRepository {
 
       const nodes: GlobalNode[] = [];
       for (const [key, value] of iter) {
-        nodes.push({ key: String(key), value: value ?? null });
+        nodes.push({
+          key: String(key),
+          value: normalizeCell(value, this.limits.maxCellChars) as GlobalNode["value"],
+        });
         if (nodes.length >= safeMax) break;
       }
       return nodes;
